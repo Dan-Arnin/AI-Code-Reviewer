@@ -1,0 +1,6 @@
+oci
+flask
+requests
+python-dotenv
+gitpython
+jinja2
