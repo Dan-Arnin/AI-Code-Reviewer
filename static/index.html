@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OCI Code Reviewer — Dashboard</title>
+    <meta name="description"
+        content="OCI Gen AI powered code review dashboard — view reports, trigger reviews, and configure settings." />
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+
+<body>
+
+    <div id="toast-container"></div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- TOP BAR                                                           -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <header class="topbar">
+        <div class="topbar-brand">
+            <div class="logo-icon">🔍</div>
+            <span>OCI Code Reviewer</span>
+        </div>
+        <div class="topbar-right">
+            <span class="text-muted" style="font-size:12px;">Powered by OCI Gen AI</span>
+            <a href="https://ocistatus.oraclecloud.com/" target="_blank" class="btn btn-sm btn-secondary">OCI Status
+                ↗</a>
+        </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- MAIN LAYOUT                                                        -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="app-main">
+
+        <!-- ── Sidebar ────────────────────────────────────────────────────── -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <div class="sidebar-label">Navigation</div>
+                <button class="nav-item active" data-view="reports">
+                    <span class="nav-icon">📋</span>
+                    <span>Reports</span>
+                </button>
+                <button class="nav-item" data-view="run-review">
+                    <span class="nav-icon">🚀</span>
+                    <span>Run Review</span>
+                </button>
+                <button class="nav-item" data-view="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span>Settings</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ── Content ────────────────────────────────────────────────────── -->
+        <main class="content">
+
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <!-- VIEW: REPORTS                                                  -->
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <div id="view-reports" class="view active">
+
+                <div class="page-header">
+                    <h1 class="page-title">Review Reports</h1>
+                    <p class="page-subtitle">All reports are fetched directly from OCI Object Storage</p>
+                </div>
+
+                <!-- Filter toolbar -->
+                <div class="toolbar">
+                    <span class="toolbar-label">📅 Filter by date</span>
+                    <div class="flex items-center gap-8">
+                        <label style="font-size:12px;color:var(--text-muted);">From</label>
+                        <input type="date" id="filter-from" title="From date" />
+                    </div>
+                    <div class="flex items-center gap-8">
+                        <label style="font-size:12px;color:var(--text-muted);">To</label>
+                        <input type="date" id="filter-to" title="To date" />
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="filter-apply">Apply</button>
+                    <button class="btn btn-secondary btn-sm" id="filter-clear">Clear</button>
+                    <div class="toolbar-spacer"></div>
+                    <div class="flex items-center gap-8">
+                        <label style="font-size:12px;color:var(--text-muted);">Per page</label>
+                        <select id="page-size-select" style="width:auto;">
+                            <option value="10">10</option>
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="loadReports(1)">↻ Refresh</button>
+                </div>
+
+                <!-- Loading state -->
+                <div id="reports-loading" class="flex items-center gap-12"
+                    style="padding:40px 0;justify-content:center;">
+                    <div class="spinner"></div>
+                    <span class="text-muted">Loading reports from OCI…</span>
+                </div>
+
+                <!-- Reports list -->
+                <div id="reports-list" class="hidden"></div>
+
+                <!-- Pagination -->
+                <div id="pagination" class="pagination"></div>
+
+            </div><!-- /view-reports -->
+
+
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <!-- VIEW: RUN REVIEW                                               -->
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <div id="view-run-review" class="view">
+
+                <div class="page-header">
+                    <h1 class="page-title">Run Code Review</h1>
+                    <p class="page-subtitle">Trigger an AI-powered review against any Oracle VBS merge request</p>
+                </div>
+
+                <div class="card" style="max-width:680px;">
+
+                    <div class="form-group">
+                        <label class="form-label" for="review-repo">Repository URL *</label>
+                        <input type="url" id="review-repo" placeholder="https://vbs.example.com/org/project.git" />
+                        <p class="form-hint">Full HTTPS URL of the Oracle VBS Git repository</p>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="review-source">Source Branch *</label>
+                            <input type="text" id="review-source" placeholder="feature/my-feature" />
+                            <p class="form-hint">The feature / MR branch</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="review-target">Target Branch *</label>
+                            <input type="text" id="review-target" placeholder="main" />
+                            <p class="form-hint">The production / base branch</p>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="review-pr-id">PR / MR ID <span
+                                class="text-muted">(optional)</span></label>
+                        <input type="text" id="review-pr-id" placeholder="42" style="max-width:160px;" />
+                        <p class="form-hint">Used as the report filename suffix when provided</p>
+                    </div>
+
+                    <!-- Progress -->
+                    <div id="review-progress" class="hidden">
+                        <div class="progress-wrap">
+                            <div class="progress-bar indeterminate" id="review-bar"></div>
+                        </div>
+                        <p class="text-muted" style="font-size:12px;margin-top:4px;">
+                            AI agents are running in parallel — this may take 60–120 seconds…
+                        </p>
+                    </div>
+
+                    <div style="display:flex;gap:12px;margin-top:4px;">
+                        <button class="btn btn-primary" id="run-review-btn">🚀 Run Review</button>
+                        <button class="btn btn-secondary" onclick="navigateTo('reports')">View Reports</button>
+                    </div>
+
+                </div>
+
+                <!-- Result -->
+                <div id="review-result"></div>
+
+            </div><!-- /view-run-review -->
+
+
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <!-- VIEW: SETTINGS                                                 -->
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <div id="view-settings" class="view">
+
+                <div class="page-header">
+                    <h1 class="page-title">Settings</h1>
+                    <p class="page-subtitle">Configure OCI connection, AI model, and per-agent review prompts</p>
+                </div>
+
+                <!-- OCI Connection -->
+                <div class="settings-section">
+                    <div class="settings-section-title">☁ OCI Connection</div>
+                    <div class="card">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="cfg-model-id">Model OCID</label>
+                                <input type="text" id="cfg-model-id" placeholder="ocid1.generativeaimodel.oc1…" />
+                                <p class="form-hint">The OCI Generative AI model to use for code review</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="cfg-endpoint">API Endpoint</label>
+                                <input type="url" id="cfg-endpoint" placeholder="https://inference.generativeai…" />
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="cfg-compartment">Storage Compartment OCID</label>
+                                <input type="text" id="cfg-compartment" placeholder="ocid1.compartment.oc1…" />
+                                <p class="form-hint">OCI compartment that owns the Object Storage bucket</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="cfg-bucket">Bucket Name</label>
+                                <input type="text" id="cfg-bucket" placeholder="REVIEW_REPORT_BUCKET" />
+                                <p class="form-hint">Name of the OCI Object Storage bucket for reports</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Agent Prompts -->
+                <div class="settings-section">
+                    <div class="settings-section-title">🤖 Agent Review Rules</div>
+                    <div class="card">
+                        <p class="text-muted" style="font-size:13px;margin-bottom:16px;">
+                            Each agent enforces a different category of best-practice rules. Edit the rules below (one
+                            rule per line). Changes take effect immediately on the next review.
+                        </p>
+
+                        <!-- Tabs -->
+                        <div class="agent-prompt-tabs">
+                            <button class="agent-tab active" data-agent="security">🔒 Security</button>
+                            <button class="agent-tab" data-agent="style">🎨 Style</button>
+                            <button class="agent-tab" data-agent="logic">🧠 Logic</button>
+                            <button class="agent-tab" data-agent="performance">⚡ Performance</button>
+                            <button class="agent-tab" data-agent="dependency">📦 Dependency</button>
+                        </div>
+
+                        <!-- Panels -->
+                        <div id="agent-panel-security" class="agent-prompt-panel active">
+                            <label class="form-label">Security rules (one per line)</label>
+                            <textarea id="prompt-security" rows="10"></textarea>
+                        </div>
+                        <div id="agent-panel-style" class="agent-prompt-panel">
+                            <label class="form-label">Style rules (one per line)</label>
+                            <textarea id="prompt-style" rows="10"></textarea>
+                        </div>
+                        <div id="agent-panel-logic" class="agent-prompt-panel">
+                            <label class="form-label">Logic rules (one per line)</label>
+                            <textarea id="prompt-logic" rows="10"></textarea>
+                        </div>
+                        <div id="agent-panel-performance" class="agent-prompt-panel">
+                            <label class="form-label">Performance rules (one per line)</label>
+                            <textarea id="prompt-performance" rows="10"></textarea>
+                        </div>
+                        <div id="agent-panel-dependency" class="agent-prompt-panel">
+                            <label class="form-label">Dependency rules (one per line)</label>
+                            <textarea id="prompt-dependency" rows="10"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:12px;align-items:center;">
+                    <button class="btn btn-primary" id="save-config-btn">💾 Save Settings</button>
+                    <button class="btn btn-secondary" onclick="loadConfig()">↻ Reset to Saved</button>
+                    <span class="text-muted" style="font-size:12px;">Changes are persisted to the server and survive
+                        restarts</span>
+                </div>
+
+            </div><!-- /view-settings -->
+
+        </main><!-- /content -->
+    </div><!-- /app-main -->
+
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- REPORT MODAL                                                       -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div id="report-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Report viewer">
+        <div class="modal" style="height:85vh;">
+            <div class="modal-header">
+                <div class="modal-title" id="modal-title">Report</div>
+                <div class="flex items-center gap-8">
+                    <span class="badge badge-oci">☁ OCI</span>
+                    <button class="btn btn-sm btn-secondary btn-icon" id="modal-close" title="Close (Esc)">✕</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <iframe id="report-iframe" title="Report content" sandbox="allow-same-origin allow-scripts"></iframe>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

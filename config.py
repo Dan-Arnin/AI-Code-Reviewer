@@ -3,9 +3,12 @@
 config.py
 Central configuration for the OCI Gen AI Code Review System.
 All settings are read from environment variables (loaded from .env).
+Runtime overrides are supported via RuntimeConfig (updated by the /api/config endpoint).
 """
 
 import os
+import json
+from typing import Dict, Any
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -37,6 +40,15 @@ OCI_MAX_TOKENS = 20000
 OCI_TEMPERATURE = 1
 OCI_TOP_P = 1
 OCI_TOP_K = 0
+
+# ---------------------------------------------------------------------------
+# OCI Object Storage
+# ---------------------------------------------------------------------------
+OCI_STORAGE_COMPARTMENT_ID = os.getenv(
+    "OCI_STORAGE_COMPARTMENT_ID",
+    "ocid1.compartment.oc1..aaaaaaaacucsz25cffcab5afedm7qcui5mpdrib2ygolks5vxsfc3wql6tna"
+)
+OCI_BUCKET_NAME = os.getenv("OCI_BUCKET_NAME", "REVIEW_REPORT_BUCKET")
 
 # ---------------------------------------------------------------------------
 # Agent orchestration
@@ -106,3 +118,56 @@ BEST_PRACTICES = {
         "Version constraints must not be overly broad (e.g. requests>=2 is too broad).",
     ],
 }
+
+
+# ---------------------------------------------------------------------------
+# Runtime config  (in-memory overrides – updated via POST /api/config)
+# ---------------------------------------------------------------------------
+
+_RUNTIME_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".runtime_config.json")
+
+
+class _RuntimeConfig:
+    """
+    Singleton that holds live config overrides.
+    Values here take precedence over the module-level constants above.
+    Persisted to a local JSON file so overrides survive restarts.
+    """
+
+    _DEFAULTS: Dict[str, Any] = {}
+
+    def __init__(self) -> None:
+        self._data: Dict[str, Any] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if os.path.exists(_RUNTIME_CONFIG_FILE):
+            try:
+                with open(_RUNTIME_CONFIG_FILE, "r", encoding="utf-8") as fh:
+                    self._data = json.load(fh)
+            except Exception:
+                self._data = {}
+
+    def _save(self) -> None:
+        try:
+            with open(_RUNTIME_CONFIG_FILE, "w", encoding="utf-8") as fh:
+                json.dump(self._data, fh, indent=2)
+        except Exception:
+            pass
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self._data.get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        self._data[key] = value
+        self._save()
+
+    def update(self, updates: Dict[str, Any]) -> None:
+        self._data.update(updates)
+        self._save()
+
+    def as_dict(self) -> Dict[str, Any]:
+        return dict(self._data)
+
+
+runtime_config = _RuntimeConfig()

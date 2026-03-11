@@ -13,6 +13,7 @@ from logger import get_logger
 from config import (
     OCI_COMPARTMENT_ID, OCI_CONFIG_PROFILE, OCI_ENDPOINT,
     OCI_MODEL_ID, OCI_MAX_TOKENS, OCI_TEMPERATURE, OCI_TOP_P, OCI_TOP_K,
+    runtime_config,
 )
 
 log = get_logger(__name__)
@@ -84,7 +85,8 @@ class OCIGenAIClient:
     def chat(self, prompt: str) -> str:
         """
         Send a single-turn chat message and return the response text.
-
+        Model ID and compartment ID are resolved from runtime_config at call
+        time so that Settings changes take effect without a server restart.
         Args:
             prompt: The full prompt to send to the model.
 
@@ -130,14 +132,18 @@ class OCIGenAIClient:
             chat_request.top_p = OCI_TOP_P
             chat_request.top_k = OCI_TOP_K
 
+            # Resolve model / compartment from runtime config (override if set)
+            effective_model_id       = runtime_config.get("model_id",       self._model_id)
+            effective_compartment_id = runtime_config.get("compartment_id", self._compartment_id)
+
             chat_detail = oci.generative_ai_inference.models.ChatDetails()
             chat_detail.serving_mode = (
                 oci.generative_ai_inference.models.OnDemandServingMode(
-                    model_id=self._model_id
+                    model_id=effective_model_id
                 )
             )
             chat_detail.chat_request = chat_request
-            chat_detail.compartment_id = self._compartment_id
+            chat_detail.compartment_id = effective_compartment_id
 
             response = self._client.chat(chat_detail)
 

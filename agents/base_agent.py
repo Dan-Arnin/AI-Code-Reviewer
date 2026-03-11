@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List
 
-from config import BEST_PRACTICES, MAX_DIFF_LINES_PER_CHUNK
+from config import BEST_PRACTICES, MAX_DIFF_LINES_PER_CHUNK, runtime_config
 from oci_client import OCIGenAIClient
 from logger import get_logger
 
@@ -74,8 +74,15 @@ class BaseReviewAgent(ABC):
 
     def __init__(self, oci_client: OCIGenAIClient):
         self._client = oci_client
-        self._rules: List[str] = BEST_PRACTICES.get(self.category_key, [])
         self._log = get_logger(f"agents.{self.agent_name.lower().replace(' ', '_')}")
+
+    @property
+    def _rules(self) -> List[str]:
+        """Resolve rules from runtime_config overrides, falling back to BEST_PRACTICES defaults."""
+        override_text = runtime_config.get(f"prompt_{self.category_key}")
+        if override_text:
+            return [line.strip() for line in override_text.splitlines() if line.strip()]
+        return BEST_PRACTICES.get(self.category_key, [])
 
     # ------------------------------------------------------------------
     # Public
