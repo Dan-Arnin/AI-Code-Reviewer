@@ -601,6 +601,33 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
 .hidden      { display: none !important; }
 .w-full      { width: 100%; }
 
+/* ── Inline Report Viewer ──────────────────────────────────────────── */
+#inline-report-panel {
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1);
+}
+.inline-report-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+}
+.inline-report-title {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60%;
+}
+
 /* ── Responsive ────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar        { width: 56px; }
@@ -610,3 +637,73 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
   .form-row       { grid-template-columns: 1fr; }
   .toolbar        { gap: 8px; }
 }
+
+/* ── AI Provider Toggle ─────────────────────────────────────────────── */
+.provider-toggle-group {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.provider-btn {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-radius: var(--radius);
+  border: 2px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+  transition: all var(--transition);
+  text-align: left;
+}
+.provider-btn:hover {
+  border-color: var(--border2);
+  color: var(--text);
+  background: var(--surface3);
+}
+.provider-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(124,110,247,0.15);
+}
+.provider-btn-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.provider-btn-label {
+  flex: 1;
+}
+
+/* ── Provider Badge (topbar) ────────────────────────────────────────── */
+.provider-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  transition: all var(--transition);
+}
+.provider-oci {
+  background: rgba(77,182,255,0.12);
+  color: var(--blue);
+  border: 1px solid rgba(77,182,255,0.3);
+}
+.provider-claude {
+  background: rgba(220,140,255,0.12);
+  color: #dc8cff;
+  border: 1px solid rgba(220,140,255,0.35);
+}
+
+/* ── Extra utilities ────────────────────────────────────────────────── */
+.ml-auto { margin-left: auto; }

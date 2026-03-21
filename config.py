@@ -1,9 +1,12 @@
 # coding: utf-8
 """
 config.py
-Central configuration for the OCI Gen AI Code Review System.
+Central configuration for the Gen AI Code Review System.
 All settings are read from environment variables (loaded from .env).
 Runtime overrides are supported via RuntimeConfig (updated by the /api/config endpoint).
+
+Supported AI providers: 'oci' (OCI Generative AI) or 'claude' (Anthropic Claude).
+Switch provider via the Settings page or by setting AI_PROVIDER in .env.
 """
 
 import os
@@ -19,6 +22,17 @@ load_dotenv()
 GIT_PAT = os.getenv("GIT_PAT", "")
 GIT_USERNAME = os.getenv("GIT_USERNAME", "")          # VBS username / email
 VBS_REPO_URL = os.getenv("VBS_REPO_URL", "")          # default repo (optional)
+
+# ---------------------------------------------------------------------------
+# AI Provider selection
+# ---------------------------------------------------------------------------
+# Set to 'oci' to use OCI Generative AI, or 'claude' to use Anthropic Claude.
+AI_PROVIDER = os.getenv("AI_PROVIDER", "oci").lower()   # default: oci
+
+# ---------------------------------------------------------------------------
+# Anthropic Claude
+# ---------------------------------------------------------------------------
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 # ---------------------------------------------------------------------------
 # OCI Generative AI
@@ -67,7 +81,6 @@ BEST_PRACTICES = {
         "All user inputs must be validated and sanitised before use.",
         "SQL queries must use parameterised statements; no string concatenation.",
         "Sensitive data must never be logged in plain text.",
-        "Authentication tokens must not be stored in cookies without HttpOnly/Secure flags.",
         "File paths constructed from user input must be sanitised to prevent path traversal.",
         "Third-party libraries should be pinned to specific versions.",
         "Avoid use of eval(), exec(), or dynamic code execution with untrusted input.",
@@ -76,14 +89,12 @@ BEST_PRACTICES = {
     ],
     "style": [
         "Code must follow PEP-8 conventions (indentation, line length ≤ 120 chars, naming).",
-        "All public functions, classes and modules must have docstrings.",
-        "Variable and function names must be descriptive and in snake_case.",
-        "No commented-out code blocks left in the codebase.",
-        "No unused imports or variables.",
+        "Variable and function names must be descriptive and in snake_case or camelCase -> not a serious issue.",
+        "No commented-out code blocks left in the codebase. -> not serious issue very light",
+        "No unused imports or variables. -> not serious issue very light",
         "Type hints should be used for all function signatures.",
-        "Magic numbers must be replaced with named constants.",
+        "Magic numbers must be replaced with named constants -> not serious issue very light",
         "Complex logic must be accompanied by inline comments.",
-        "Files must end with a single newline character.",
         "Avoid deeply nested code; prefer early returns to reduce nesting.",
     ],
     "logic": [

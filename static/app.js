@@ -243,6 +243,53 @@ function closeModal() {
   document.body.style.overflow = "";
 }
 
+// ─── AI Provider toggle ───────────────────────────────────────────────────────
+/**
+ * Called when the user clicks an OCI / Claude button.
+ * Immediately updates the button UI and the topbar badge.
+ * Does NOT save — user still needs to click "Save Settings".
+ */
+function selectProvider(provider) {
+  $$(".provider-btn").forEach(btn => btn.classList.remove("active"));
+  $(`#btn-provider-${provider}`)?.classList.add("active");
+  updateProviderUI(provider, false);
+}
+
+/**
+ * Sync the topbar badge and the hint text to the given provider.
+ * @param {string}  provider  'oci' | 'claude'
+ * @param {boolean} save      if true, also persist via POST /api/config
+ */
+function updateProviderUI(provider, save = false) {
+  const badge     = $("#provider-badge");
+  const hintName  = $("#provider-hint-name");
+
+  if (provider === "claude") {
+    if (badge) {
+      badge.textContent = "✦ Claude Sonnet";
+      badge.className   = "provider-badge provider-claude";
+    }
+    if (hintName) hintName.textContent = "Anthropic Claude Sonnet";
+  } else {
+    if (badge) {
+      badge.textContent = "⚙ OCI Gen AI";
+      badge.className   = "provider-badge provider-oci";
+    }
+    if (hintName) hintName.textContent = "OCI Gen AI";
+  }
+
+  if (save) {
+    fetch("/api/config", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ ai_provider: provider }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.status === "ok") toast(`Switched to ${provider === "claude" ? "Claude Sonnet" : "OCI Gen AI"}`, "success"); })
+      .catch(err => toast("Failed to update provider: " + err.message, "error"));
+  }
+}
+
 // ─── Config / Settings ────────────────────────────────────────────────────────
 async function loadConfig() {
   try {
@@ -251,6 +298,8 @@ async function loadConfig() {
     if (!res.ok) throw new Error(data.error || "Failed to load config");
     state.config = data;
     populateConfigForm(data);
+    // Sync provider badge in topbar
+    if (data.ai_provider) updateProviderUI(data.ai_provider, false);
   } catch (err) {
     toast("Could not load config: " + err.message, "error");
   }
@@ -262,6 +311,12 @@ function populateConfigForm(cfg) {
   set("#cfg-compartment",   cfg.compartment_id);
   set("#cfg-bucket",        cfg.bucket_name);
   set("#cfg-endpoint",      cfg.endpoint);
+
+  // Provider toggle buttons
+  if (cfg.ai_provider) {
+    $$("#provider-toggle-group .provider-btn").forEach(btn => btn.classList.remove("active"));
+    $(`#btn-provider-${cfg.ai_provider}`)?.classList.add("active");
+  }
 
   // Prompts
   if (cfg.prompts) {
@@ -283,7 +338,12 @@ async function saveConfig() {
     if (ta) prompts[agent] = ta.value;
   });
 
+  // Determine selected provider from the active button
+  const activeProviderBtn = $("#provider-toggle-group .provider-btn.active");
+  const selectedProvider  = activeProviderBtn?.id?.replace("btn-provider-", "") || "oci";
+
   const payload = {
+    ai_provider:    selectedProvider,
     model_id:       $("#cfg-model-id")?.value.trim(),
     compartment_id: $("#cfg-compartment")?.value.trim(),
     bucket_name:    $("#cfg-bucket")?.value.trim(),
@@ -300,6 +360,7 @@ async function saveConfig() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Save failed");
     toast(`Config saved: ${data.updated?.join(", ")}`, "success");
+    updateProviderUI(selectedProvider, false);
   } catch (err) {
     toast(err.message, "error");
   } finally {
@@ -371,9 +432,14 @@ async function runReview() {
       ${data.oci_uploaded ? `<div class="mt-8 text-muted" style="font-size:12px;">☁ Uploaded to OCI: <span class="font-mono">${data.oci_object}</span></div>` : ""}
     `;
 
-    toast("Review complete! Report uploaded to OCI.", "success", 5000);
+    toast("Review complete! Loading report inline…", "success", 5000);
 
-    // Refresh reports list if on that tab, or switch to it
+    // ── Show the report inline on the same page ──────────────────────
+    if (data.report_filename) {
+      showInlineReport(data.report_filename);
+    }
+
+    // Refresh reports list if on that tab
     if (state.currentView === "reports") {
       loadReports(1);
     }
@@ -389,6 +455,38 @@ async function runReview() {
     if (bar) bar.style.width = "100%";
     setTimeout(() => progress?.classList.add("hidden"), 1000);
   }
+}
+
+// ─── Inline Report Viewer ────────────────────────────────────────────────────
+/**
+ * Load the freshly-generated report into the inline iframe panel.
+ * Uses the local-report endpoint so the user doesn't have to wait for OCI.
+ * @param {string} filename  bare filename, e.g. "review_PR42_20260312_161812.html"
+ */
+function showInlineReport(filename) {
+  const panel    = $("#inline-report-panel");
+  const iframe   = $("#inline-report-iframe");
+  const titleEl  = $("#inline-report-title");
+  const tabLink  = $("#inline-report-open-tab");
+
+  if (!panel || !iframe) return;
+
+  const url = `/api/local-report/${encodeURIComponent(filename)}`;
+  titleEl.textContent    = `📄 ${filename}`;
+  tabLink.href           = url;
+  iframe.src             = url;
+
+  panel.classList.remove("hidden");
+
+  // Smooth scroll so the user sees the report without manual scrolling
+  setTimeout(() => panel.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+}
+
+function closeInlineReport() {
+  const panel  = $("#inline-report-panel");
+  const iframe = $("#inline-report-iframe");
+  if (iframe) iframe.src = "about:blank";
+  panel?.classList.add("hidden");
 }
 
 // ─── Filter handlers ──────────────────────────────────────────────────────────

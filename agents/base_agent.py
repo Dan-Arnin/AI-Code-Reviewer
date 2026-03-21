@@ -6,8 +6,12 @@ Abstract base class for all code-review agents.
 Each agent:
   - Receives the full DiffResult.
   - Builds a specialised prompt using its rules from BEST_PRACTICES.
-  - Calls OCIGenAIClient.chat() (potentially in chunks for large diffs).
+  - Calls the AI client's chat() method (OCI or Claude, same interface).
   - Returns a structured AgentResult.
+
+Findings are split at parse-time:
+  - CRITICAL / HIGH  → ``findings``   (blocking issues, shown first; capped at 10)
+  - MEDIUM / LOW / INFO → ``suggestions`` (shown separately in the Suggestions tab)
 """
 
 import textwrap
@@ -16,8 +20,10 @@ from dataclasses import dataclass, field
 from typing import List
 
 from config import BEST_PRACTICES, MAX_DIFF_LINES_PER_CHUNK, runtime_config
-from oci_client import OCIGenAIClient
 from logger import get_logger
+
+# Maximum blocking findings to surface per agent (keeps reports focused)
+_MAX_BLOCKING_FINDINGS = 10
 
 
 # ---------------------------------------------------------------------------
@@ -41,15 +47,16 @@ class Finding:
 class AgentResult:
     """Aggregated output from a single agent run."""
     agent_name: str
-    findings: List[Finding] = field(default_factory=list)
+    findings: List["Finding"] = field(default_factory=list)      # CRITICAL / HIGH only
+    suggestions: List["Finding"] = field(default_factory=list)   # MEDIUM / LOW / INFO
     summary: str = ""
     raw_responses: List[str] = field(default_factory=list)
-    had_errors: bool = False   # True if any OCI call failed
+    had_errors: bool = False   # True if any AI call failed
 
     @property
     def severity_counts(self) -> dict:
         counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
-        for f in self.findings:
+        for f in self.findings + self.suggestions:
             counts[f.severity] = counts.get(f.severity, 0) + 1
         return counts
 
@@ -72,8 +79,9 @@ class BaseReviewAgent(ABC):
     agent_name: str = "Generic Agent"
     extra_instructions: str = ""
 
-    def __init__(self, oci_client: OCIGenAIClient):
-        self._client = oci_client
+    def __init__(self, ai_client):
+        """Accept any AI client that exposes a chat(prompt) -> str method."""
+        self._client = ai_client
         self._log = get_logger(f"agents.{self.agent_name.lower().replace(' ', '_')}")
 
     @property
@@ -126,12 +134,24 @@ class BaseReviewAgent(ABC):
                     continue
 
                 result.raw_responses.append(response)
-                findings = self._parse_response(response)
-                result.findings.extend(findings)
+                all_findings = self._parse_response(response)
+
+                # Split into blocking (CRITICAL/HIGH) and suggestions
+                blocking = [
+                    f for f in all_findings
+                    if f.severity in ("CRITICAL", "HIGH")
+                ]
+                suggestions_found = [
+                    f for f in all_findings
+                    if f.severity not in ("CRITICAL", "HIGH")
+                ]
+
+                result.findings.extend(blocking)
+                result.suggestions.extend(suggestions_found)
 
                 self._log.debug(
-                    "Chunk %d/%d processed → %d finding(s) extracted.",
-                    i, total_chunks, len(findings),
+                    "Chunk %d/%d processed → %d blocking finding(s) | %d suggestion(s).",
+                    i, total_chunks, len(blocking), len(suggestions_found),
                 )
 
             except RuntimeError as exc:
@@ -159,22 +179,33 @@ class BaseReviewAgent(ABC):
                 result.had_errors = True
 
         total_findings = len(result.findings)
+        total_suggestions = len(result.suggestions)
+
+        # Cap blocking findings at the maximum to keep reports focused
+        if len(result.findings) > _MAX_BLOCKING_FINDINGS:
+            self._log.info(
+                "Capping blocking findings from %d to %d for agent '%s'.",
+                len(result.findings), _MAX_BLOCKING_FINDINGS, self.agent_name,
+            )
+            result.findings = result.findings[:_MAX_BLOCKING_FINDINGS]
+
         severity_summary = ", ".join(
             f"{v} {k}" for k, v in result.severity_counts.items() if v > 0
         ) or "none"
 
         self._log.info(
-            "Review complete → %d finding(s) [%s]%s",
+            "Review complete → %d blocking finding(s) | %d suggestion(s) [%s]%s",
             total_findings,
+            total_suggestions,
             severity_summary,
-            " | ⚠ some OCI calls failed – results may be incomplete" if result.had_errors else "",
+            " | ⚠ some AI calls failed – results may be incomplete" if result.had_errors else "",
         )
 
-        # Log first 400 chars of OCI response at DEBUG level so it's visible in the log file
+        # Log first 400 chars of AI response at DEBUG level
         if result.raw_responses:
             last_resp = result.raw_responses[-1]
             if not last_resp.startswith("[ERROR]"):
-                self._log.debug("Last OCI response preview: %s …", last_resp[:400].replace("\n", " "))
+                self._log.debug("Last AI response preview: %s …", last_resp[:400].replace("\n", " "))
 
         result.summary = self._build_summary(result)
         return result

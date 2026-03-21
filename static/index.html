@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OCI Code Reviewer — Dashboard</title>
+    <title>AI Code Reviewer — Dashboard</title>
     <meta name="description"
-        content="OCI Gen AI powered code review dashboard — view reports, trigger reviews, and configure settings." />
+        content="AI-powered code review dashboard — OCI Gen AI or Anthropic Claude — view reports, trigger reviews, and configure settings." />
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 
@@ -20,10 +20,10 @@
     <header class="topbar">
         <div class="topbar-brand">
             <div class="logo-icon">🔍</div>
-            <span>OCI Code Reviewer</span>
+            <span>AI Code Reviewer</span>
         </div>
         <div class="topbar-right">
-            <span class="text-muted" style="font-size:12px;">Powered by OCI Gen AI</span>
+            <span id="provider-badge" class="provider-badge provider-oci">⚙ OCI Gen AI</span>
             <a href="https://ocistatus.oraclecloud.com/" target="_blank" class="btn btn-sm btn-secondary">OCI Status
                 ↗</a>
         </div>
@@ -165,7 +165,26 @@
                 <!-- Result -->
                 <div id="review-result"></div>
 
+                <!-- ── Inline report viewer ─────────────────────────────── -->
+                <div id="inline-report-panel" class="hidden" style="margin-top:24px;">
+                    <div class="inline-report-header">
+                        <span class="inline-report-title" id="inline-report-title">📄 Report</span>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <a id="inline-report-open-tab" href="#" target="_blank"
+                               class="btn btn-sm btn-secondary" title="Open report in new tab">↗ Open in Tab</a>
+                            <button class="btn btn-sm btn-secondary btn-icon"
+                                    onclick="closeInlineReport()" title="Close report">✕</button>
+                        </div>
+                    </div>
+                    <iframe id="inline-report-iframe"
+                            title="Inline report viewer"
+                            sandbox="allow-same-origin allow-scripts"
+                            style="width:100%;height:72vh;border:none;border-radius:0 0 10px 10px;background:#fff;">
+                    </iframe>
+                </div>
+
             </div><!-- /view-run-review -->
+
 
 
             <!-- ══════════════════════════════════════════════════════════════ -->
@@ -175,12 +194,38 @@
 
                 <div class="page-header">
                     <h1 class="page-title">Settings</h1>
-                    <p class="page-subtitle">Configure OCI connection, AI model, and per-agent review prompts</p>
+                    <p class="page-subtitle">Configure the AI provider, OCI connection, model, and per-agent review rules</p>
                 </div>
 
+                <!-- ── AI Provider ───────────────────────────────────────── -->
+                <div class="settings-section">
+                    <div class="settings-section-title">🤖 AI Provider</div>
+                    <div class="card">
+                        <p class="text-muted" style="font-size:13px;margin-bottom:16px;">
+                            Choose between <strong>OCI Generative AI</strong> (uses your ~/.oci/config credentials)
+                            and <strong>Anthropic Claude Sonnet</strong> (uses the ANTHROPIC_API_KEY from .env).
+                            The change takes effect on the next review run — no restart needed.
+                        </p>
+                        <div class="provider-toggle-group" id="provider-toggle-group">
+                            <button class="provider-btn active" id="btn-provider-oci"
+                                    onclick="selectProvider('oci')">
+                                <span class="provider-btn-icon">☁</span>
+                                <span class="provider-btn-label">OCI Gen AI</span>
+                            </button>
+                            <button class="provider-btn" id="btn-provider-claude"
+                                    onclick="selectProvider('claude')">
+                                <span class="provider-btn-icon">✦</span>
+                                <span class="provider-btn-label">Anthropic Claude Sonnet</span>
+                            </button>
+                        </div>
+                        <p class="form-hint" id="provider-hint" style="margin-top:12px;">
+                            Currently using: <strong id="provider-hint-name">OCI Gen AI</strong>
+                        </p>
+                    </div>
+                </div>
                 <!-- OCI Connection -->
                 <div class="settings-section">
-                    <div class="settings-section-title">☁ OCI Connection</div>
+                    <div class="settings-section-title">☁ OCI Connection <span class="text-muted" style="font-size:11px;font-weight:400;">(only used when provider = OCI Gen AI)</span></div>
                     <div class="card">
                         <div class="form-row">
                             <div class="form-group">
@@ -207,6 +252,7 @@
                         </div>
                     </div>
                 </div>
+
 
                 <!-- Agent Prompts -->
                 <div class="settings-section">

@@ -28,7 +28,7 @@ from report_generator import ReportGenerator
 from oci_storage import OCIStorageClient
 from config import (
     OCI_MODEL_ID, OCI_STORAGE_COMPARTMENT_ID, OCI_BUCKET_NAME,
-    OCI_ENDPOINT, BEST_PRACTICES, runtime_config,
+    OCI_ENDPOINT, BEST_PRACTICES, AI_PROVIDER, runtime_config,
 )
 
 log = get_logger(__name__)
@@ -123,10 +123,15 @@ def review():
 
         # ── Step 3: Write HTML report locally ─────────────────────────
         log.info("STEP 3/4 → Writing HTML report …")
-        timestamp       = datetime.now().strftime("%Y%m%d_%H%M%S")
-        slug            = pr_id or f"{source_branch.replace('/', '_')}_{timestamp}"
-        report_filename = f"review_{slug}.html"
-        report_path     = os.path.join(REPORTS_DIR, report_filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if pr_id:
+            # e.g. review_PR42_20260312_161812.html — always unique even for the same PR
+            report_filename = f"review_PR{pr_id}_{timestamp}.html"
+        else:
+            # e.g. review_feature_my-feature_20260312_161812.html
+            safe_branch = source_branch.replace("/", "_").replace(" ", "_")
+            report_filename = f"review_{safe_branch}_{timestamp}.html"
+        report_path = os.path.join(REPORTS_DIR, report_filename)
 
         os.makedirs(REPORTS_DIR, exist_ok=True)
         generator = ReportGenerator()
@@ -149,10 +154,11 @@ def review():
         log.info("=" * 60)
 
         return jsonify({
-            "status":      "success",
-            "report_path": report_path,
-            "oci_object":  oci_object_name if oci_uploaded else None,
-            "oci_uploaded": oci_uploaded,
+            "status":          "success",
+            "report_path":     report_path,
+            "report_filename": report_filename,
+            "oci_object":      oci_object_name if oci_uploaded else None,
+            "oci_uploaded":    oci_uploaded,
             "summary": {
                 "overall_status":  report.overall_status,
                 "total_findings":  report.total_findings,
@@ -178,6 +184,28 @@ def review():
             exc, exc_info=True,
         )
         return jsonify({"status": "error", "error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# Local report (for inline viewer immediately after a review completes)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/local-report/<path:filename>", methods=["GET"])
+def get_local_report(filename: str):
+    """
+    Serve a report HTML file from the local reports/ directory.
+    Used by the inline viewer right after a review completes so the user
+    doesn't have to wait for OCI Object Storage propagation.
+    """
+    import re
+    # Safety: only allow safe filenames (no directory traversal)
+    if not re.match(r'^[\w\-]+\.html$', filename):
+        return jsonify({"status": "error", "error": "Invalid filename."}), 400
+    try:
+        return send_from_directory(REPORTS_DIR, filename, mimetype="text/html; charset=utf-8")
+    except Exception as exc:
+        log.error("Failed to serve local report '%s': %s", filename, exc)
+        return jsonify({"status": "error", "error": str(exc)}), 404
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +287,7 @@ def get_config():
 
     # Effective values: runtime overrides take precedence
     effective = {
+        "ai_provider":    runtime_config.get("ai_provider",    AI_PROVIDER),
         "model_id":       runtime_config.get("model_id",       cfg.OCI_MODEL_ID),
         "compartment_id": runtime_config.get("compartment_id", cfg.OCI_STORAGE_COMPARTMENT_ID),
         "bucket_name":    runtime_config.get("bucket_name",    cfg.OCI_BUCKET_NAME),
@@ -283,6 +312,10 @@ def update_config():
     """
     data = request.get_json(silent=True) or {}
     updates = {}
+
+    # AI provider toggle
+    if "ai_provider" in data and data["ai_provider"] in ("oci", "claude"):
+        updates["ai_provider"] = data["ai_provider"]
 
     for field in ("model_id", "compartment_id", "bucket_name", "endpoint"):
         if field in data and data[field]:

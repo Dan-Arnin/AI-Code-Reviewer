@@ -2,6 +2,7 @@
 """
 reviewer.py
 Orchestrates all review agents concurrently and aggregates results.
+Supports OCI Generative AI and Anthropic Claude as AI backends.
 """
 
 import time
@@ -11,6 +12,8 @@ from typing import List
 
 from git_client import DiffResult
 from oci_client import OCIGenAIClient
+from claude_client import ClaudeClient
+from config import AI_PROVIDER, runtime_config
 from agents import (
     SecurityAgent,
     StyleAgent,
@@ -60,11 +63,21 @@ class CodeReviewer:
     """
     Runs all five review agents against a DiffResult and returns a ReviewReport.
     Agents run concurrently to minimise wall-clock time.
+
+    The AI provider (OCI or Claude) is resolved from runtime_config at review
+    time so that it can be switched in the Settings page without a server restart.
     """
 
     def __init__(self):
-        log.info("Initialising CodeReviewer with %d agents …", 5)
-        self._oci = OCIGenAIClient()
+        # Resolve provider from runtime config first, fall back to .env / config.py default
+        provider = (runtime_config.get("ai_provider") or AI_PROVIDER).lower()
+        log.info("Initialising CodeReviewer | provider=%s | agents=5 …", provider)
+
+        if provider == "claude":
+            self._ai_client = ClaudeClient()
+        else:
+            self._ai_client = OCIGenAIClient()
+
         self._agent_classes = [
             SecurityAgent,
             StyleAgent,
@@ -84,7 +97,7 @@ class CodeReviewer:
             :class:`ReviewReport` with all agent findings.
         """
         start = time.monotonic()
-        agent_instances = [cls(self._oci) for cls in self._agent_classes]
+        agent_instances = [cls(self._ai_client) for cls in self._agent_classes]
         results: List[AgentResult] = []
 
         log.info("Launching %d agents in parallel …", len(agent_instances))
