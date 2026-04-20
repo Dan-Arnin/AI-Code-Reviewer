@@ -707,3 +707,49 @@ textarea { resize: vertical; min-height: 100px; font-family: var(--font-mono); f
 
 /* ── Extra utilities ────────────────────────────────────────────────── */
 .ml-auto { margin-left: auto; }
+
+/* ── Agent toggle chips (Run Review form) ───────────────────────────── */
+.agent-toggle-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.agent-toggle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border-radius: 100px;
+  border: 1.5px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all var(--transition);
+  user-select: none;
+}
+.agent-toggle-chip:hover {
+  border-color: var(--border2);
+  color: var(--text);
+}
+.agent-toggle-chip.active {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chip-icon  { font-size: 15px; }
+.chip-check {
+  font-size: 11px;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: all var(--transition);
+}
+.agent-toggle-chip.active .chip-check {
+  opacity: 1;
+  transform: scale(1);
+}
+/* Disabled (unchecked) state */
+.agent-toggle-chip:not(.active) {
+  opacity: 0.55;
+}

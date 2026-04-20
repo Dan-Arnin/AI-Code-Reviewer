@@ -318,6 +318,22 @@ function populateConfigForm(cfg) {
     $(`#btn-provider-${cfg.ai_provider}`)?.classList.add("active");
   }
 
+  // Active agents (Settings tab)
+  if (cfg.enabled_agents) {
+    ALL_AGENTS.forEach(agent => {
+      const cb = $(`#agent-${agent}`);
+      const chip = $(`#chip-${agent}`);
+      if (cb && chip) {
+        cb.checked = cfg.enabled_agents.includes(agent);
+        chip.classList.toggle("active", cb.checked);
+      }
+    });
+    // This function exists from the toggles setup
+    if (typeof updateAgentCountHint === "function") {
+      updateAgentCountHint();
+    }
+  }
+
   // Prompts
   if (cfg.prompts) {
     Object.entries(cfg.prompts).forEach(([agent, text]) => {
@@ -348,6 +364,7 @@ async function saveConfig() {
     compartment_id: $("#cfg-compartment")?.value.trim(),
     bucket_name:    $("#cfg-bucket")?.value.trim(),
     endpoint:       $("#cfg-endpoint")?.value.trim(),
+    enabled_agents: getEnabledAgents(),
     prompts,
   };
 
@@ -369,6 +386,35 @@ async function saveConfig() {
   }
 }
 
+// ─── Agent Toggles ───────────────────────────────────────────────────────────
+const ALL_AGENTS = ["security", "logic", "performance", "dependency", "style"];
+
+function initAgentToggles() {
+  ALL_AGENTS.forEach(agent => {
+    const chip = $(`#chip-${agent}`);
+    const cb   = $(`#agent-${agent}`);
+    if (!chip || !cb) return;
+
+    chip.addEventListener("click", (e) => {
+      e.preventDefault(); // prevent double-fire from label+input
+      cb.checked = !cb.checked;
+      chip.classList.toggle("active", cb.checked);
+      updateAgentCountHint();
+    });
+  });
+  updateAgentCountHint();
+}
+
+function updateAgentCountHint() {
+  const active = ALL_AGENTS.filter(a => $(`#agent-${a}`)?.checked).length;
+  const hint   = $("#agent-count-hint");
+  if (hint) hint.textContent = `${active} of ${ALL_AGENTS.length} agents active`;
+}
+
+function getEnabledAgents() {
+  return ALL_AGENTS.filter(a => $(`#agent-${a}`)?.checked);
+}
+
 // ─── Run Review ───────────────────────────────────────────────────────────────
 async function runReview() {
   const btn      = $("#run-review-btn");
@@ -377,10 +423,10 @@ async function runReview() {
   const bar      = $("#review-bar");
 
   const payload = {
-    repo_url:      $("#review-repo")?.value.trim(),
-    source_branch: $("#review-source")?.value.trim(),
-    target_branch: $("#review-target")?.value.trim(),
-    pr_id:         $("#review-pr-id")?.value.trim(),
+    repo_url:       $("#review-repo")?.value.trim(),
+    source_branch:  $("#review-source")?.value.trim(),
+    target_branch:  $("#review-target")?.value.trim(),
+    pr_id:          $("#review-pr-id")?.value.trim(),
   };
 
   if (!payload.repo_url || !payload.source_branch || !payload.target_branch) {
@@ -550,6 +596,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Run review
   $("#run-review-btn")?.addEventListener("click", runReview);
+
+  // Agent toggle chips
+  initAgentToggles();
 
   // Page size change
   $("#page-size-select")?.addEventListener("change", (e) => {

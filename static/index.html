@@ -145,6 +145,8 @@
                         <p class="form-hint">Used as the report filename suffix when provided</p>
                     </div>
 
+
+
                     <!-- Progress -->
                     <div id="review-progress" class="hidden">
                         <div class="progress-wrap">
@@ -253,6 +255,49 @@
                     </div>
                 </div>
 
+
+                <!-- ── Active Agents ───────────────────────────────────────── -->
+                <div class="settings-section">
+                    <div class="settings-section-title">🔌 Active Agents</div>
+                    <div class="card">
+                        <p class="text-muted" style="font-size:13px;margin-bottom:16px;">
+                            Deselect agents you want to skip globally for all reviews — disabled agents are not called and don't count toward the report.
+                        </p>
+                        <div class="agent-toggle-grid" id="agent-toggle-grid">
+                            <label class="agent-toggle-chip active" id="chip-security">
+                                <input type="checkbox" id="agent-security" value="security" checked hidden />
+                                <span class="chip-icon">🔒</span>
+                                <span class="chip-label">Security</span>
+                                <span class="chip-check">✓</span>
+                            </label>
+                            <label class="agent-toggle-chip active" id="chip-logic">
+                                <input type="checkbox" id="agent-logic" value="logic" checked hidden />
+                                <span class="chip-icon">🧠</span>
+                                <span class="chip-label">Logic</span>
+                                <span class="chip-check">✓</span>
+                            </label>
+                            <label class="agent-toggle-chip active" id="chip-performance">
+                                <input type="checkbox" id="agent-performance" value="performance" checked hidden />
+                                <span class="chip-icon">⚡</span>
+                                <span class="chip-label">Performance</span>
+                                <span class="chip-check">✓</span>
+                            </label>
+                            <label class="agent-toggle-chip active" id="chip-dependency">
+                                <input type="checkbox" id="agent-dependency" value="dependency" checked hidden />
+                                <span class="chip-icon">📦</span>
+                                <span class="chip-label">Dependency</span>
+                                <span class="chip-check">✓</span>
+                            </label>
+                            <label class="agent-toggle-chip active" id="chip-style">
+                                <input type="checkbox" id="agent-style" value="style" checked hidden />
+                                <span class="chip-icon">🎨</span>
+                                <span class="chip-label">Style</span>
+                                <span class="chip-check">✓</span>
+                            </label>
+                        </div>
+                        <p class="form-hint" id="agent-count-hint" style="margin-top:8px;">5 of 5 agents active</p>
+                    </div>
+                </div>
 
                 <!-- Agent Prompts -->
                 <div class="settings-section">

@@ -71,36 +71,54 @@ class CodeReviewer:
     def __init__(self):
         # Resolve provider from runtime config first, fall back to .env / config.py default
         provider = (runtime_config.get("ai_provider") or AI_PROVIDER).lower()
-        log.info("Initialising CodeReviewer | provider=%s | agents=5 …", provider)
+        log.info("Initialising CodeReviewer | provider=%s …", provider)
 
         if provider == "claude":
             self._ai_client = ClaudeClient()
         else:
             self._ai_client = OCIGenAIClient()
 
-        self._agent_classes = [
-            SecurityAgent,
-            StyleAgent,
-            LogicAgent,
-            PerformanceAgent,
-            DependencyAgent,
-        ]
+        # All available agent classes keyed by their category_key
+        self._all_agent_classes = {
+            "security":    SecurityAgent,
+            "style":       StyleAgent,
+            "logic":       LogicAgent,
+            "performance": PerformanceAgent,
+            "dependency":  DependencyAgent,
+        }
 
-    def review(self, diff_result: DiffResult) -> ReviewReport:
+    def review(self, diff_result: DiffResult, enabled_agents: List[str] = None) -> ReviewReport:
         """
-        Run all agents against the diff and return an aggregated ReviewReport.
+        Run enabled agents against the diff and return an aggregated ReviewReport.
 
         Args:
-            diff_result: Output from :class:`OracleVBSGitClient.get_diff`.
+            diff_result:    Output from :class:`OracleVBSGitClient.get_diff`.
+            enabled_agents: List of category keys to run (e.g. ["security", "logic"]).
+                            Defaults to all five agents when None or empty.
 
         Returns:
             :class:`ReviewReport` with all agent findings.
         """
+        # Resolve which agent classes to run
+        if enabled_agents:
+            agent_classes = [
+                cls for key, cls in self._all_agent_classes.items()
+                if key in enabled_agents
+            ]
+        else:
+            agent_classes = list(self._all_agent_classes.values())
+
+        if not agent_classes:
+            # Shouldn't happen due to api.py guard, but be safe
+            agent_classes = list(self._all_agent_classes.values())
+
         start = time.monotonic()
-        agent_instances = [cls(self._ai_client) for cls in self._agent_classes]
+        agent_instances = [cls(self._ai_client) for cls in agent_classes]
         results: List[AgentResult] = []
 
-        log.info("Launching %d agents in parallel …", len(agent_instances))
+        log.info("Launching %d agent(s) in parallel: %s …",
+                 len(agent_instances),
+                 ", ".join(a.agent_name for a in agent_instances))
 
         with ThreadPoolExecutor(max_workers=len(agent_instances)) as executor:
             future_to_agent = {

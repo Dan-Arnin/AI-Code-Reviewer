@@ -1,0 +1,17 @@
+{
+  "ai_provider": "claude",
+  "model_id": "ocid1.generativeaimodel.oc1.us-chicago-1.amaaaaaask7dceyat2iycf2rksgjhlmrmsxakcyjbpxurwmfguxjzptogvqa",
+  "compartment_id": "ocid1.compartment.oc1..aaaaaaaacucsz25cffcab5afedm7qcui5mpdrib2ygolks5vxsfc3wql6tna",
+  "bucket_name": "REVIEW_REPORT_BUCKET",
+  "endpoint": "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com",
+  "prompt_security": "SQL queries must use parameterised statements \u2014 string concatenation in queries allows SQL injection.\nNever call eval(), exec(), new Function(), or similar with unsanitised user input \u2014 this allows remote code execution.\nFile paths constructed from user input must be sanitised to prevent directory traversal attacks.\nHTTP client calls to external services must validate SSL/TLS certificates (no verify=False / rejectUnauthorized:false).\nCryptographic operations must never use deprecated algorithms (MD5, SHA-1, DES) for security-sensitive data.",
+  "prompt_style": "Deeply nested callbacks or promise chains without any error propagation path will silently swallow failures.",
+  "prompt_logic": "All external API / database / file-system calls MUST have error handling (try/catch or .catch()). Missing error handling will crash the process on failure.\nNull / undefined values returned from API calls or object lookups must be checked before use \u2014 accessing a property on null throws a runtime error.\nAsynchronous functions / Promises must be properly awaited or have a rejection handler \u2014 unhandled rejections crash Node.js processes.\nRecursive functions must have a clear base case \u2014 missing one causes a stack overflow.\nAvoid swallowed exceptions (bare except: pass / catch(e) {}) \u2014 silent failures hide bugs and make debugging impossible.\nArray / collection operations (map, filter, find, forEach) on a value that could be null or undefined must be null-checked first.",
+  "prompt_performance": "Database queries or expensive I/O inside a loop WILL cause N+1 problems and timeouts under load \u2014 must be refactored to bulk queries.\nFile handles and database connections must always be closed after use (use context managers / finally blocks) \u2014 resource leaks cause pod crashes under load.\nBlocking synchronous I/O (fs.readFileSync, sleep) inside an async event loop blocks the entire thread.",
+  "prompt_dependency": "Dependencies with known critical CVEs (CVSS \u2265 9.0) must not be introduced.\nAll new dependencies must be declared in package.json / requirements.txt \u2014 undeclared deps cause deploy failures.",
+  "enabled_agents": [
+    "security",
+    "logic",
+    "performance"
+  ]
+}

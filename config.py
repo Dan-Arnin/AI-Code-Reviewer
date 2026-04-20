@@ -75,58 +75,75 @@ MAX_DIFF_LINES_PER_CHUNK = 300
 # Best-practices checklist
 # Each agent uses a subset of these rules in its system prompt.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# CRITICAL rules – agents flag these as CRITICAL or HIGH findings only.
+# These are bugs that WILL crash the process, corrupt data, or open a
+# direct security hole (SQL injection, eval on user input, etc.).
+# DO NOT add style / logging / documentation rules here.
+# ---------------------------------------------------------------------------
 BEST_PRACTICES = {
     "security": [
-        "No hardcoded credentials, API keys, passwords or tokens in source code.",
-        "All user inputs must be validated and sanitised before use.",
-        "SQL queries must use parameterised statements; no string concatenation.",
-        "Sensitive data must never be logged in plain text.",
-        "File paths constructed from user input must be sanitised to prevent path traversal.",
-        "Third-party libraries should be pinned to specific versions.",
-        "Avoid use of eval(), exec(), or dynamic code execution with untrusted input.",
-        "HTTP requests to external services must validate SSL certificates.",
-        "Secrets must be loaded from environment variables or a secrets vault, not config files.",
-    ],
-    "style": [
-        "Code must follow PEP-8 conventions (indentation, line length ≤ 120 chars, naming).",
-        "Variable and function names must be descriptive and in snake_case or camelCase -> not a serious issue.",
-        "No commented-out code blocks left in the codebase. -> not serious issue very light",
-        "No unused imports or variables. -> not serious issue very light",
-        "Type hints should be used for all function signatures.",
-        "Magic numbers must be replaced with named constants -> not serious issue very light",
-        "Complex logic must be accompanied by inline comments.",
-        "Avoid deeply nested code; prefer early returns to reduce nesting.",
+        "SQL queries must use parameterised statements — string concatenation in queries allows SQL injection.",
+        "Never call eval(), exec(), new Function(), or similar with unsanitised user input — this allows remote code execution.",
+        "File paths constructed from user input must be sanitised to prevent directory traversal attacks.",
+        # "HTTP client calls to external services must validate SSL/TLS certificates (no verify=False / rejectUnauthorized:false).",
+        # "Cryptographic operations must never use deprecated algorithms (MD5, SHA-1, DES) for security-sensitive data.",
     ],
     "logic": [
-        "All external API / DB calls must have error handling (try/except).",
-        "Edge cases (empty list, None, zero, negative numbers) must be handled.",
-        "Recursive functions must have a clear base case to prevent infinite recursion.",
-        "Asynchronous code must properly await all coroutines.",
-        "No swallowed exceptions (bare except: pass).",
-        "Return values from functions must not be silently ignored where they signal errors.",
-        "Boolean flags should not replace proper state machines for complex workflows.",
-        "List comprehensions must not have side effects.",
-        "Thread-shared state must be protected with appropriate locks.",
-        "Avoid mutable default arguments in function definitions.",
+        "All external API / database / file-system calls MUST have error handling (try/catch or .catch()). Missing error handling will crash the process on failure.",
+        "Null / undefined values returned from API calls or object lookups must be checked before use — accessing a property on null throws a runtime error.",
+        "Asynchronous functions / Promises must be properly awaited or have a rejection handler — unhandled rejections crash Node.js processes.",
+        "Recursive functions must have a clear base case — missing one causes a stack overflow.",
+        "Avoid swallowed exceptions (bare except: pass / catch(e) {}) — silent failures hide bugs and make debugging impossible.",
+        "Array / collection operations (map, filter, find, forEach) on a value that could be null or undefined must be null-checked first.",
     ],
     "performance": [
-        "Database queries inside loops must be refactored to bulk queries.",
-        "Large data sets must be processed with generators or streams, not loaded fully into memory.",
-        "Repeated expensive computations should be cached.",
-        "Avoid creating large temporary lists when a generator suffices.",
-        "HTTP connections should be reused via session objects.",
-        "File handles must always be closed (use context managers).",
-        "Avoid unnecessary deep copying of large objects.",
-        "String concatenation in loops must use join() or a buffer.",
-        "Logging inside tight loops must be avoided or guarded by a level check.",
-        "Blocking I/O must not be performed in async event loops.",
+        "Database queries or expensive I/O inside a loop WILL cause N+1 problems and timeouts under load — must be refactored to bulk queries.",
+        "File handles and database connections must always be closed after use (use context managers / finally blocks) — resource leaks cause pod crashes under load.",
+        "Blocking synchronous I/O (fs.readFileSync, sleep) inside an async event loop blocks the entire thread.",
     ],
     "dependency": [
-        "All new dependencies must be listed in requirements.txt / pyproject.toml.",
-        "Avoid adding large libraries for trivial tasks (e.g. six, requests for one-line use).",
-        "License of new dependencies must be compatible with the project license.",
-        "Dependencies must not have known critical CVEs.",
-        "Version constraints must not be overly broad (e.g. requests>=2 is too broad).",
+        "Dependencies with known critical CVEs (CVSS ≥ 9.0) must not be introduced.",
+        "All new dependencies must be declared in package.json / requirements.txt — undeclared deps cause deploy failures.",
+    ],
+    "style": [
+        "Deeply nested callbacks or promise chains without any error propagation path will silently swallow failures.",
+    ],
+}
+
+# ---------------------------------------------------------------------------
+# SUGGESTION rules – shown only in the Suggestions tab, never as blocking
+# findings. These are code-quality improvements, NOT bugs.
+# ---------------------------------------------------------------------------
+SUGGESTION_PRACTICES = {
+    "security": [
+        "Hardcoded credentials or API keys in source code should be moved to environment variables.",
+        "Sensitive data (PII, tokens) ideally should not appear in log output even at debug level.",
+        "OCI / cloud config paths should be loaded from environment variables for portability.",
+    ],
+    "style": [
+        "Code should follow PEP-8 / ESLint conventions (indentation, line length, naming).",
+        "Commented-out code blocks should be removed.",
+        "Unused imports or variables should be cleaned up.",
+        "Type hints (Python) or JSDoc annotations (JS) improve IDE support and readability.",
+        "Magic numbers should be replaced with named constants.",
+        "Complex logic should have inline comments.",
+    ],
+    "logic": [
+        "Repeated expensive computations (e.g. moment() parsing inside sort comparators) should be cached.",
+        "Boolean flags used as poor state machines could be replaced with explicit state enums.",
+        "Mutable default arguments in Python functions can cause surprising bugs.",
+    ],
+    "performance": [
+        "HTTP connections should be reused via session/agent objects where possible.",
+        "Large datasets should use generators or streams instead of loading fully into memory.",
+        "String concatenation in tight loops should use join() or a buffer.",
+        "Logging inside tight loops should be avoided or guarded by a level check.",
+    ],
+    "dependency": [
+        "Avoid adding large libraries for trivial tasks.",
+        "Version constraints should not be overly broad (e.g. requests>=2).",
+        "Dependency licences should be compatible with the project licence.",
     ],
 }
 

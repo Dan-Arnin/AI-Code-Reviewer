@@ -19,7 +19,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List
 
-from config import BEST_PRACTICES, MAX_DIFF_LINES_PER_CHUNK, runtime_config
+from config import BEST_PRACTICES, SUGGESTION_PRACTICES, MAX_DIFF_LINES_PER_CHUNK, runtime_config
 from logger import get_logger
 
 # Maximum blocking findings to surface per agent (keeps reports focused)
@@ -86,11 +86,16 @@ class BaseReviewAgent(ABC):
 
     @property
     def _rules(self) -> List[str]:
-        """Resolve rules from runtime_config overrides, falling back to BEST_PRACTICES defaults."""
+        """Critical rules only — finding these = CRITICAL/HIGH severity."""
         override_text = runtime_config.get(f"prompt_{self.category_key}")
         if override_text:
             return [line.strip() for line in override_text.splitlines() if line.strip()]
         return BEST_PRACTICES.get(self.category_key, [])
+
+    @property
+    def _suggestion_rules(self) -> List[str]:
+        """Improvement rules — finding these = MEDIUM/LOW severity (Suggestions tab)."""
+        return SUGGESTION_PRACTICES.get(self.category_key, [])
 
     # ------------------------------------------------------------------
     # Public
@@ -114,69 +119,63 @@ class BaseReviewAgent(ABC):
 
         for i, chunk in enumerate(chunks, start=1):
             self._log.debug("Processing chunk %d/%d (length=%d chars).", i, total_chunks, len(chunk))
-            prompt = self._build_prompt(chunk, i, total_chunks, diff_result)
 
+            # ── Critical pass (CRITICAL / HIGH only) ──────────────────────────
+            prompt_critical = self._build_prompt(
+                chunk, i, total_chunks, diff_result, mode="critical"
+            )
             try:
-                response = self._client.chat(prompt)
+                response = self._client.chat(prompt_critical)
+                if response and response.strip():
+                    result.raw_responses.append(response)
+                    all_findings = self._parse_response(response)
 
-                if not response or not response.strip():
-                    self._log.warning(
-                        "OCI returned an empty response for chunk %d/%d.\n"
-                        "  WHAT WENT WRONG : The model produced no output. This can happen "
-                        "due to content filtering, a model quota issue, or a transient API glitch.\n"
-                        "  WHAT TO DO      : Retry the review. If it keeps happening, check OCI "
-                        "service health at https://ocistatus.oraclecloud.com/ and verify your "
-                        "token quota in the OCI Console under Generative AI → Limits.",
-                        i, total_chunks,
+                    blocking = [f for f in all_findings if f.severity in ("CRITICAL", "HIGH")]
+                    result.findings.extend(blocking)
+
+                    self._log.debug(
+                        "Chunk %d/%d critical pass → %d blocking finding(s).",
+                        i, total_chunks, len(blocking),
                     )
-                    result.raw_responses.append("[ERROR] OCI returned empty response.")
+                else:
+                    self._log.warning("Empty response on critical pass chunk %d/%d.", i, total_chunks)
                     result.had_errors = True
-                    continue
-
-                result.raw_responses.append(response)
-                all_findings = self._parse_response(response)
-
-                # Split into blocking (CRITICAL/HIGH) and suggestions
-                blocking = [
-                    f for f in all_findings
-                    if f.severity in ("CRITICAL", "HIGH")
-                ]
-                suggestions_found = [
-                    f for f in all_findings
-                    if f.severity not in ("CRITICAL", "HIGH")
-                ]
-
-                result.findings.extend(blocking)
-                result.suggestions.extend(suggestions_found)
-
-                self._log.debug(
-                    "Chunk %d/%d processed → %d blocking finding(s) | %d suggestion(s).",
-                    i, total_chunks, len(blocking), len(suggestions_found),
-                )
 
             except RuntimeError as exc:
-                # RuntimeError is already logged with context in oci_client.py
                 self._log.error(
-                    "OCI call failed for chunk %d/%d → skipping this chunk.\n"
-                    "  WHAT WENT WRONG : %s\n"
-                    "  WHAT TO DO      : See the detailed error above. Fix the OCI "
-                    "credentials or network issue, then re-run the review.",
-                    i, total_chunks, exc,
+                    "AI call failed on critical pass chunk %d/%d: %s", i, total_chunks, exc
                 )
                 result.raw_responses.append(f"[ERROR] {exc}")
                 result.had_errors = True
-
             except Exception as exc:
                 self._log.error(
-                    "Unexpected error in agent '%s' for chunk %d/%d.\n"
-                    "  WHAT WENT WRONG : %s\n"
-                    "  WHAT TO DO      : This is an unexpected internal error. Check "
-                    "the full log file in the logs/ directory for the complete stack trace.",
-                    self.agent_name, i, total_chunks, exc,
-                    exc_info=True,   # prints full traceback to the log file
+                    "Unexpected error on critical pass chunk %d/%d: %s", i, total_chunks, exc,
+                    exc_info=True,
                 )
                 result.raw_responses.append(f"[ERROR] Unexpected: {exc}")
                 result.had_errors = True
+
+            # ── Suggestion pass (MEDIUM / LOW only) ──────────────────────────
+            if self._suggestion_rules:
+                prompt_sug = self._build_prompt(
+                    chunk, i, total_chunks, diff_result, mode="suggestions"
+                )
+                try:
+                    sug_response = self._client.chat(prompt_sug)
+                    if sug_response and sug_response.strip():
+                        all_sug = self._parse_response(sug_response)
+                        suggestions_found = [
+                            f for f in all_sug
+                            if f.severity not in ("CRITICAL", "HIGH")
+                        ]
+                        result.suggestions.extend(suggestions_found)
+                        self._log.debug(
+                            "Chunk %d/%d suggestion pass → %d suggestion(s).",
+                            i, total_chunks, len(suggestions_found),
+                        )
+                except Exception as exc:
+                    # Suggestion pass failures are non-fatal
+                    self._log.debug("Suggestion pass failed for chunk %d/%d: %s", i, total_chunks, exc)
 
         total_findings = len(result.findings)
         total_suggestions = len(result.suggestions)
@@ -231,19 +230,68 @@ class BaseReviewAgent(ABC):
         return chunks
 
     def _build_prompt(
-        self, diff_chunk: str, chunk_idx: int, total_chunks: int, diff_result
+        self, diff_chunk: str, chunk_idx: int, total_chunks: int, diff_result,
+        mode: str = "critical",
     ) -> str:
+        """
+        Build the prompt sent to the AI model.
+
+        mode="critical"     → CRITICAL/HIGH only, strict "do not flag" list
+        mode="suggestions"  → MEDIUM/LOW suggestions only
+        """
+        if mode == "suggestions":
+            rules_text = "\n".join(f"  {i+1}. {r}" for i, r in enumerate(self._suggestion_rules))
+            return textwrap.dedent(f"""
+                You are a senior software engineer reviewing a unified diff for code-quality improvements.
+                Focus area: **{self.agent_name} – Suggestions Only**
+
+                ## Improvement rules (MEDIUM / LOW severity only)
+{rules_text}
+
+                ## Context
+                - Repository: {diff_result.metadata.repo_url}
+                - Source branch: {diff_result.metadata.source_branch}
+                - Target branch: {diff_result.metadata.target_branch}
+                - Chunk {chunk_idx} of {total_chunks}
+
+                ## STRICT INSTRUCTIONS
+                - Only output findings with SEVERITY: MEDIUM or SEVERITY: LOW.
+                - Do NOT flag missing try/catch, null checks, or runtime crashes — those are handled separately.
+                - Keep each DESCRIPTION to one short sentence.
+                - Cap your response at 6 findings maximum. Quality over quantity.
+
+                ## Unified Diff
+                ```diff
+                {diff_chunk}
+                ```
+
+                ## Output format (repeat per finding)
+                FINDING_START
+                SEVERITY: <MEDIUM|LOW>
+                FILE: <path or "general">
+                LINE: <line or reference>
+                DESCRIPTION: <one-line>
+                EXPLANATION: <one sentence why>
+                SUGGESTION: <one-line fix>
+                BEST_PRACTICE: <rule violated>
+                FINDING_END
+
+                SUMMARY: <one sentence on {self.agent_name.lower()} improvement opportunities>
+
+                If nothing to suggest: SUMMARY: No {self.agent_name.lower()} suggestions.
+            """).strip()
+
+        # ── Critical mode ────────────────────────────────────────────────────
         rules_text = "\n".join(f"  {i+1}. {r}" for i, r in enumerate(self._rules))
         extra = (
             f"\nAdditional instructions:\n{self.extra_instructions}"
-            if self.extra_instructions
-            else ""
+            if self.extra_instructions else ""
         )
         return textwrap.dedent(f"""
-            You are a senior software engineer performing a code review.
-            Focus area: **{self.agent_name}**
+            You are a senior software engineer performing a strict code review.
+            Focus area: **{self.agent_name} – Critical & High Issues Only**
 
-            ## Rules to enforce
+            ## Rules to enforce (CRITICAL / HIGH severity only)
 {rules_text}
 {extra}
 
@@ -253,29 +301,48 @@ class BaseReviewAgent(ABC):
             - Target branch (prod): {diff_result.metadata.target_branch}
             - Chunk {chunk_idx} of {total_chunks}
 
+            ## STRICT INSTRUCTIONS — read carefully before responding
+            Only raise a finding if the code WILL or VERY LIKELY WILL:
+              • Throw an unhandled exception / crash the process
+              • Cause data loss or corruption
+              • Allow SQL injection, RCE, or directory traversal
+              • Cause an unhandled Promise rejection that crashes Node.js
+              • Access a property on a value that is provably null/undefined
+
+            DO NOT flag any of the following (skip them completely):
+              ✗ Logging of user messages, LLM responses, or debug payloads
+              ✗ Hardcoded file paths or OCI config paths (e.g. /home/.oci/config)
+              ✗ Missing JSDoc, type hints, or inline comments
+              ✗ Naming conventions, code style, or formatting issues
+              ✗ Redundant computations or micro-optimisations (e.g. moment() in a sort)
+              ✗ Missing input sanitisation UNLESS it directly enables injection attacks
+              ✗ Hardcoded non-secret constants or URL strings
+              ✗ Anything you would rate MEDIUM, LOW, or INFO — those belong in suggestions
+
+            If in doubt, DO NOT raise the finding.
+            Cap your response at 10 findings maximum.
+
             ## Unified Diff (chunk {chunk_idx}/{total_chunks})
             ```diff
             {diff_chunk}
             ```
 
             ## Required output format
-            For every issue found, output exactly this block (repeat for each issue):
-
             FINDING_START
-            SEVERITY: <CRITICAL|HIGH|MEDIUM|LOW|INFO>
+            SEVERITY: <CRITICAL|HIGH>
             FILE: <file path or "general">
             LINE: <line number or short reference>
             DESCRIPTION: <one-line description of the problem>
-            EXPLANATION: <detailed explanation of why this is an issue>
-            SUGGESTION: <one-line fix recommendation>
-            BEST_PRACTICE: <the best practice rule that was violated>
+            EXPLANATION: <why this will crash or break the code>
+            SUGGESTION: <one-line fix>
+            BEST_PRACTICE: <rule violated>
             FINDING_END
 
-            After all findings output one line:
-            SUMMARY: <one sentence summarising the {self.agent_name} health of this diff>
+            After all findings output:
+            SUMMARY: <one sentence on the {self.agent_name} health of this diff>
 
-            If no issues are found output ONLY:
-            SUMMARY: No {self.agent_name.lower()} issues found.
+            If no critical/high issues found:
+            SUMMARY: No {self.agent_name.lower()} blocking issues found.
         """).strip()
 
     @staticmethod

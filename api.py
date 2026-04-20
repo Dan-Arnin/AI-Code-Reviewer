@@ -28,7 +28,7 @@ from report_generator import ReportGenerator
 from oci_storage import OCIStorageClient
 from config import (
     OCI_MODEL_ID, OCI_STORAGE_COMPARTMENT_ID, OCI_BUCKET_NAME,
-    OCI_ENDPOINT, BEST_PRACTICES, AI_PROVIDER, runtime_config,
+    OCI_ENDPOINT, BEST_PRACTICES, SUGGESTION_PRACTICES, AI_PROVIDER, runtime_config,
 )
 
 log = get_logger(__name__)
@@ -93,10 +93,24 @@ def review():
     target_branch = data["target_branch"]
     pr_id         = data.get("pr_id", "")
 
+    # Agents the user enabled from global settings — default to all five if not set
+    _all_agents     = ["security", "logic", "performance", "dependency", "style"]
+    enabled_agents  = runtime_config.get("enabled_agents")
+    
+    if not isinstance(enabled_agents, list) or not enabled_agents:
+        enabled_agents = _all_agents
+    else:
+        # filter to valid agents only
+        enabled_agents = [a for a in enabled_agents if a in _all_agents]
+
+    # guard: never let an empty list slip through
+    enabled_agents = enabled_agents or _all_agents
+
     log.info("  Repo   : %s", repo_url)
     log.info("  Source : %s", source_branch)
     log.info("  Target : %s", target_branch)
     log.info("  PR ID  : %s", pr_id or "N/A")
+    log.info("  Agents : %s", ", ".join(enabled_agents))
 
     try:
         # ── Step 1: Fetch diff ────────────────────────────────────────
@@ -113,9 +127,9 @@ def review():
         )
 
         # ── Step 2: Run review agents ─────────────────────────────────
-        log.info("STEP 2/4 → Running AI review agents …")
+        log.info("STEP 2/4 → Running AI review agents (%s) …", ", ".join(enabled_agents))
         reviewer = CodeReviewer()
-        report   = reviewer.review(diff_result)
+        report   = reviewer.review(diff_result, enabled_agents=enabled_agents)
         log.info(
             "Review complete → status: %s | findings: %d | elapsed: %.2fs",
             report.overall_status, report.total_findings, report.elapsed_seconds,
@@ -292,6 +306,7 @@ def get_config():
         "compartment_id": runtime_config.get("compartment_id", cfg.OCI_STORAGE_COMPARTMENT_ID),
         "bucket_name":    runtime_config.get("bucket_name",    cfg.OCI_BUCKET_NAME),
         "endpoint":       runtime_config.get("endpoint",       cfg.OCI_ENDPOINT),
+        "enabled_agents": runtime_config.get("enabled_agents", ["security", "logic", "performance", "dependency", "style"]),
         "prompts": {
             agent: runtime_config.get(f"prompt_{agent}", "\n".join(rules))
             for agent, rules in BEST_PRACTICES.items()
@@ -320,6 +335,12 @@ def update_config():
     for field in ("model_id", "compartment_id", "bucket_name", "endpoint"):
         if field in data and data[field]:
             updates[field] = data[field]
+
+    if "enabled_agents" in data and isinstance(data["enabled_agents"], list):
+        updates["enabled_agents"] = [
+            a for a in data["enabled_agents"]
+            if a in ("security", "style", "logic", "performance", "dependency")
+        ]
 
     if "prompts" in data and isinstance(data["prompts"], dict):
         for agent, text in data["prompts"].items():
