@@ -13,5 +13,15 @@
     "security",
     "logic",
     "performance"
+  ],
+  "saved_repos": [
+    "https://dharshan%40conneqtiongroup.com@connqt-vbs-conneqtiontrack-bom.developer.ocp.oraclecloud.com/connqt-vbs-conneqtiontrack-bom/s/connqt-vbs-conneqtiontrack-bom_conneqtion-code-repository_2986/scm/DMCC-HRMS-Agent.git"
+  ],
+  "saved_pats": [
+    {
+      "name": "DMCC PAT Token",
+      "username": "dharshan@conneqtiongroup.com",
+      "token": "DvYeZiqHay0xTS9n_7M-paN1EcAX8bdAa1jewMDY1Mk"
+    }
   ]
 }

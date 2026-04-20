@@ -623,12 +623,19 @@ class ReportGenerator:
         suggestions_html  = self._render_tab_suggestions(report, total_suggestions)
         changed_files_html= self._render_changed_files(report)
 
+        if meta.target_branch:
+            page_title = f"Code Review — {meta.source_branch} → {meta.target_branch}"
+            subtitle_text = f"{repo_name} &nbsp;·&nbsp; {meta.source_branch} → {meta.target_branch} &nbsp;·&nbsp; {generated_at}"
+        else:
+            page_title = f"Code Review — {meta.source_branch}"
+            subtitle_text = f"{repo_name} &nbsp;·&nbsp; {meta.source_branch} &nbsp;·&nbsp; {generated_at}"
+
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Code Review — {meta.source_branch} → {meta.target_branch}</title>
+<title>{page_title}</title>
 <style>{_CSS}</style>
 <script>{_JS}</script>
 </head>
@@ -640,7 +647,7 @@ class ReportGenerator:
   <div class="report-hero">
     <div>
       <h1>🔍 Code Review Report</h1>
-      <div class="subtitle">{repo_name} &nbsp;·&nbsp; {meta.source_branch} → {meta.target_branch} &nbsp;·&nbsp; {generated_at}</div>
+      <div class="subtitle">{subtitle_text}</div>
     </div>
     <div class="status-pill" style="background:{status_bg};color:{status_color};border-color:{status_color};">
       {self._status_icon(status)} {status}
@@ -718,7 +725,7 @@ class ReportGenerator:
         tiles = [
             ("Repository",      repo_name,                     "mono", ""),
             ("Source Branch",   meta.source_branch,            "mono", ""),
-            ("Target Branch",   meta.target_branch,            "mono", ""),
+            ("Target Branch",   meta.target_branch if meta.target_branch else "N/A (Single Branch)",            "mono", ""),
             ("Commits",         str(meta.commit_count),        "",     ""),
             ("Files Changed",   str(len(report.diff_result.changed_files)), "", ""),
             ("Blocking Issues", str(total_blocking),           "",     "#FF9F7F"),

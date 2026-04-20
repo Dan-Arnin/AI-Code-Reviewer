@@ -177,6 +177,45 @@ class OracleVBSGitClient:
         finally:
             self._cleanup()
 
+    def get_single_branch(self, branch: str) -> DiffResult:
+        """
+        Clone the repo and extract all files from a single branch, returning
+        them as a DiffResult where all files are marked as 'A' (Added).
+        """
+        log.info("Extracting single branch: %s", branch)
+        try:
+            self._clone()
+            return self._compute_single_branch(branch)
+        except Exception:
+            raise
+        finally:
+            self._cleanup()
+
+    def get_remote_branches(self) -> List[str]:
+        """
+        Fetch a list of all remote branch names without cloning via git ls-remote.
+        """
+        import subprocess
+        log.info("Fetching remote branches for %s", self.repo_url)
+        # We can use git ls-remote on the authenticated URL
+        try:
+            output = subprocess.check_output(
+                ["git", "ls-remote", "--heads", self._auth_url],
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+            branches = []
+            for line in output.splitlines():
+                if not line.strip(): continue
+                # Example line: 1234abcd... refs/heads/main
+                parts = line.split()
+                if len(parts) >= 2 and parts[1].startswith("refs/heads/"):
+                    branches.append(parts[1].replace("refs/heads/", "", 1))
+            return branches
+        except subprocess.CalledProcessError as exc:
+            log.error("Failed to fetch remote branches: %s\n%s", exc, exc.output)
+            raise ValueError(f"Could not fetch branches from {self.repo_url}")
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -360,6 +399,63 @@ class OracleVBSGitClient:
         return DiffResult(
             metadata=metadata,
             full_diff=full_diff_text,
+            changed_files=changed_files,
+        )
+
+    def _compute_single_branch(self, branch: str) -> DiffResult:
+        """Produce a DiffResult for a single branch, treating all files as added."""
+        repo = self._repo
+        available_refs = [r.name for r in repo.remotes.origin.refs]
+
+        def resolve_commit(branch_name: str):
+            for ref in [f"origin/{branch_name}", branch_name]:
+                try:
+                    return repo.commit(ref)
+                except Exception:
+                    continue
+            raise ValueError(f"Branch '{branch_name}' not found. Available: {available_refs}")
+
+        commit = resolve_commit(branch)
+        
+        # Build "diff" from scratch
+        changed_files: List[ChangedFile] = []
+        full_diff_lines = []
+        
+        # Traverse the tree for all blobs
+        for item in commit.tree.traverse():
+            if item.type == "blob":
+                content = _read_blob(item)
+                file_path = item.path
+                
+                # Mock a diff text just in case rules look for it
+                content_lines = content.splitlines()
+                mock_diff = [f"--- /dev/null", f"+++ b/{file_path}", f"@@ -0,0 +1,{len(content_lines)} @@"]
+                for line in content_lines:
+                    mock_diff.append(f"+{line}")
+                diff_text = "\n".join(mock_diff)
+                
+                full_diff_lines.append(diff_text)
+                
+                changed_files.append(ChangedFile(
+                    path=file_path,
+                    change_type="A",
+                    diff_text=diff_text,
+                    source_content="",
+                    target_content=content,
+                ))
+
+        metadata = PRMetadata(
+            source_branch=branch,
+            target_branch="",
+            repo_url=self.repo_url,
+            pr_id=None,
+            commit_count=1,
+            commits=[commit.hexsha[:8]],
+        )
+
+        return DiffResult(
+            metadata=metadata,
+            full_diff="\n".join(full_diff_lines),
             changed_files=changed_files,
         )
 

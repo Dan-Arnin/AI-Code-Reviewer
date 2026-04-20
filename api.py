@@ -79,7 +79,12 @@ def review():
     log.info("Review request received at %s", request_time)
 
     # ── Validate input ────────────────────────────────────────────────
-    required = ["repo_url", "source_branch", "target_branch"]
+    is_single_branch = data.get("is_single_branch", False)
+    
+    required = ["repo_url", "source_branch"]
+    if not is_single_branch:
+        required.append("target_branch")
+        
     missing = [f for f in required if not data.get(f)]
     if missing:
         log.warning("Request rejected — missing fields: %s", missing)
@@ -90,8 +95,10 @@ def review():
 
     repo_url      = data["repo_url"]
     source_branch = data["source_branch"]
-    target_branch = data["target_branch"]
+    target_branch = data.get("target_branch", "")
     pr_id         = data.get("pr_id", "")
+    git_pat       = data.get("git_pat")
+    git_username  = data.get("git_username")
 
     # Agents the user enabled from global settings — default to all five if not set
     _all_agents     = ["security", "logic", "performance", "dependency", "style"]
@@ -108,21 +115,35 @@ def review():
 
     log.info("  Repo   : %s", repo_url)
     log.info("  Source : %s", source_branch)
-    log.info("  Target : %s", target_branch)
+    if not is_single_branch:
+        log.info("  Target : %s", target_branch)
+    else:
+        log.info("  Mode   : Single Branch")
     log.info("  PR ID  : %s", pr_id or "N/A")
     log.info("  Agents : %s", ", ".join(enabled_agents))
 
     try:
         # ── Step 1: Fetch diff ────────────────────────────────────────
-        log.info("STEP 1/4 → Cloning repository and computing diff …")
-        git_client  = OracleVBSGitClient(repo_url=repo_url)
-        diff_result = git_client.get_diff(
-            source_branch=source_branch,
-            target_branch=target_branch,
-            pr_id=pr_id or None,
-        )
+        git_client_kwargs = {"repo_url": repo_url}
+        if git_pat and git_username:
+            git_client_kwargs["pat"] = git_pat
+            git_client_kwargs["username"] = git_username
+            
+        git_client = OracleVBSGitClient(**git_client_kwargs)
+        
+        if is_single_branch:
+            log.info("STEP 1/4 → Cloning repository and extracting single branch …")
+            diff_result = git_client.get_single_branch(branch=source_branch)
+        else:
+            log.info("STEP 1/4 → Cloning repository and computing diff …")
+            diff_result = git_client.get_diff(
+                source_branch=source_branch,
+                target_branch=target_branch,
+                pr_id=pr_id or None,
+            )
+            
         log.info(
-            "Diff ready → %d file(s) changed | %d commit(s).",
+            "Data ready → %d file(s) changed/found | %d commit(s).",
             len(diff_result.changed_files), diff_result.metadata.commit_count,
         )
 
@@ -137,14 +158,21 @@ def review():
 
         # ── Step 3: Write HTML report locally ─────────────────────────
         log.info("STEP 3/4 → Writing HTML report …")
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        if pr_id:
-            # e.g. review_PR42_20260312_161812.html — always unique even for the same PR
-            report_filename = f"review_PR{pr_id}_{timestamp}.html"
+        repo_name = repo_url.rstrip('/').split('/')[-1]
+        if repo_name.endswith('.git'):
+            repo_name = repo_name[:-4]
+        
+        safe_repo = repo_name.replace("/", "_").replace(" ", "_").replace("-", "_")
+        safe_source = source_branch.replace("/", "_").replace(" ", "_")
+        
+        if is_single_branch:
+            report_filename = f"{safe_repo}_{safe_source}_{timestamp}.html"
         else:
-            # e.g. review_feature_my-feature_20260312_161812.html
-            safe_branch = source_branch.replace("/", "_").replace(" ", "_")
-            report_filename = f"review_{safe_branch}_{timestamp}.html"
+            safe_target = target_branch.replace("/", "_").replace(" ", "_")
+            report_filename = f"{safe_repo}_{safe_source}_{safe_target}_{timestamp}.html"
+            
         report_path = os.path.join(REPORTS_DIR, report_filename)
 
         os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -311,6 +339,8 @@ def get_config():
             agent: runtime_config.get(f"prompt_{agent}", "\n".join(rules))
             for agent, rules in BEST_PRACTICES.items()
         },
+        "saved_repos":    runtime_config.get("saved_repos", []),
+        "saved_pats":     runtime_config.get("saved_pats", []),
         "_overrides": runtime_config.as_dict(),
     }
     return jsonify(effective), 200
@@ -342,6 +372,12 @@ def update_config():
             if a in ("security", "style", "logic", "performance", "dependency")
         ]
 
+    if "saved_repos" in data and isinstance(data["saved_repos"], list):
+        updates["saved_repos"] = data["saved_repos"]
+
+    if "saved_pats" in data and isinstance(data["saved_pats"], list):
+        updates["saved_pats"] = data["saved_pats"]
+
     if "prompts" in data and isinstance(data["prompts"], dict):
         for agent, text in data["prompts"].items():
             if agent in BEST_PRACTICES:
@@ -353,6 +389,36 @@ def update_config():
     runtime_config.update(updates)
     log.info("Runtime config updated: %s", list(updates.keys()))
     return jsonify({"status": "ok", "updated": list(updates.keys())}), 200
+
+
+# ---------------------------------------------------------------------------
+# Git API (Utilities)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/git/branches", methods=["POST"])
+def get_git_branches():
+    """
+    Fetch remote branches for a repository using git ls-remote.
+    
+    Body (JSON):
+        repo_url, git_pat, git_username
+    """
+    data = request.get_json(silent=True) or {}
+    repo_url = data.get("repo_url")
+    pat = data.get("git_pat")
+    username = data.get("git_username")
+    
+    if not repo_url or not pat or not username:
+        return jsonify({"status": "error", "error": "Missing repo_url, git_pat, or git_username"}), 400
+        
+    try:
+        from git_client import OracleVBSGitClient
+        client = OracleVBSGitClient(repo_url=repo_url, pat=pat, username=username)
+        branches = client.get_remote_branches()
+        return jsonify({"status": "success", "branches": branches}), 200
+    except Exception as exc:
+        log.error("Failed to fetch branches: %s", exc)
+        return jsonify({"status": "error", "error": str(exc)}), 500
 
 
 # ---------------------------------------------------------------------------

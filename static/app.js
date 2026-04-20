@@ -1,5 +1,5 @@
 /**
- * app.js — Code Reviewer Dashboard
+ * app.js — CodeSpectre Dashboard
  * Vanilla JS, no dependencies.
  */
 
@@ -16,7 +16,10 @@ const state = {
     from:        "",
     to:          "",
   },
-  config:        null,
+  config: {
+    saved_pats: [],
+    saved_repos: []
+  },
   activeAgent:   "security",
   modal: {
     open:       false,
@@ -28,11 +31,45 @@ const state = {
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+// ─── Particles & Theme ───────────────────────────────────────────────────────
+function initTheme() {
+  const toggle = $("#theme-toggle");
+  if (!toggle) return;
+  const isDark = !document.documentElement.classList.contains("light");
+  
+  toggle.addEventListener("click", () => {
+    document.documentElement.classList.toggle("dark");
+    document.documentElement.classList.toggle("light");
+    const nowDark = document.documentElement.classList.contains("dark");
+    toggle.textContent = nowDark ? "🌙" : "☀️";
+  });
+}
+
+function initParticles() {
+    try {
+        if (window.tsParticles) {
+            tsParticles.load("tsparticles", {
+                preset: "stars",
+                background: { color: "transparent" },
+                particles: {
+                    number: { value: 80 },
+                    color: { value: ["#06b6d4", "#a855f7", "#ffffff"] },
+                    opacity: { value: 0.5, animation: { enable: true, minimumValue: 0.1, speed: 1, sync: false } },
+                    size: { value: 2, random: true },
+                    move: { enable: true, speed: 0.5, direction: "none", random: true, straight: false, outModes: "out" }
+                }
+            });
+        }
+    } catch (e) {
+        console.warn("Could not load particles:", e);
+    }
+}
+
 // ─── Toast ────────────────────────────────────────────────────────────────────
 function toast(msg, type = "info", duration = 4000) {
   const icons = { success: "✅", error: "❌", info: "ℹ️" };
   const el = document.createElement("div");
-  el.className = `toast ${type}`;
+  el.className = `toast toast-${type}`;
   el.innerHTML = `<span>${icons[type] || "ℹ️"}</span><span>${msg}</span>`;
   $("#toast-container").appendChild(el);
   setTimeout(() => el.remove(), duration);
@@ -48,6 +85,7 @@ function navigateTo(view) {
 
   if (view === "reports") loadReports();
   if (view === "settings") loadConfig();
+  if (view === "run-review") populateReviewFormOptions();
 }
 
 // ─── Reports ──────────────────────────────────────────────────────────────────
@@ -102,10 +140,10 @@ function showReportsEmpty(msg = "No reports found in OCI bucket.") {
   if (!list) return;
   list.classList.remove("hidden");
   list.innerHTML = `
-    <div class="empty-state">
-      <div class="empty-icon">📂</div>
-      <h3>No Reports Found</h3>
-      <p>${msg}</p>
+    <div class="empty-state card glass flex flex-col items-center gap-12" style="text-align:center; padding: 40px;">
+      <div style="font-size: 3rem; margin-bottom: 15px;">📂</div>
+      <h3 class="neon-text">No Reports Found</h3>
+      <p class="text-muted">${msg}</p>
     </div>`;
 }
 
@@ -120,10 +158,9 @@ function renderReports() {
 
   list.innerHTML = state.reports.items.map(r => reportCardHTML(r)).join("");
 
-  // Bind click handlers
-  $$(".report-card", list).forEach(card => {
+  $$(".report-item", list).forEach(card => {
     card.addEventListener("click", (e) => {
-      if (e.target.closest(".btn")) return; // ignore button clicks
+      if (e.target.closest(".btn")) return;
       openReport(card.dataset.objectName);
     });
   });
@@ -134,44 +171,22 @@ function reportCardHTML(r) {
   const created  = r.time_created || "Unknown";
   const sizeKb   = r.size_bytes ? (r.size_bytes / 1024).toFixed(1) + " KB" : "";
 
-  // Try to detect status from name
-  const status  = guessStatusFromName(name);
-  const badgeCls = statusBadge(status);
-
   return `
-    <div class="report-card" data-object-name="${r.name}">
-      <div class="report-icon">📄</div>
-      <div class="report-body">
-        <div class="report-name" title="${r.name}">${name}</div>
-        <div class="report-meta">
-          <span class="report-meta-item">🕐 ${created}</span>
-          ${sizeKb ? `<span class="report-meta-item">📦 ${sizeKb}</span>` : ""}
-          <span class="badge badge-oci">☁ OCI</span>
+    <div class="report-item" data-object-name="${r.name}">
+      <div>
+        <div class="report-item-title" title="${r.name}">${name}</div>
+        <div class="report-item-date">
+          <span>🕐 ${created}</span>
+          ${sizeKb ? `<span style="margin-left:8px;">📦 ${sizeKb}</span>` : ""}
+          <span style="margin-left:8px;" class="neon-text-cyan">☁ OCI</span>
         </div>
       </div>
-      <div class="report-actions">
-        ${badgeCls ? `<span class="badge ${badgeCls}">${status}</span>` : ""}
-        <button class="btn btn-sm btn-secondary" onclick="openReport('${r.name}')">
+      <div>
+        <button class="btn btn-sm btn-secondary ghost-btn" onclick="openReport('${r.name}')">
           View ↗
         </button>
       </div>
     </div>`;
-}
-
-function guessStatusFromName(name) {
-  // Reports don't embed status in filename — return empty for now
-  // Could be enriched by parsing a metadata sidecar in the future
-  return "";
-}
-
-function statusBadge(status) {
-  const map = {
-    "BLOCKED":         "badge-blocked",
-    "NEEDS WORK":      "badge-needs",
-    "REVIEW REQUIRED": "badge-review",
-    "APPROVED":        "badge-approved",
-  };
-  return map[status] || "";
 }
 
 function renderPagination() {
@@ -185,26 +200,22 @@ function renderPagination() {
   const endItem   = Math.min(page * pageSize, total);
 
   let btns = "";
-
-  // Prev
-  btns += `<button class="page-btn" ${page === 1 ? "disabled" : ""} onclick="loadReports(${page - 1})">‹ Prev</button>`;
-
-  // Page numbers
+  btns += `<button class="btn btn-sm ghost-btn" ${page === 1 ? "disabled" : ""} onclick="loadReports(${page - 1})">‹ Prev</button>`;
+  
   const range = pageRange(page, totalPages);
   range.forEach(p => {
     if (p === "…") {
-      btns += `<span class="page-info">…</span>`;
+      btns += `<span class="page-info text-muted">…</span>`;
     } else {
-      btns += `<button class="page-btn ${p === page ? "active" : ""}" onclick="loadReports(${p})">${p}</button>`;
+      btns += `<button class="btn btn-sm ${p === page ? "neon-btn" : "ghost-btn"}" onclick="loadReports(${p})">${p}</button>`;
     }
   });
 
-  // Next
-  btns += `<button class="page-btn" ${page === totalPages ? "disabled" : ""} onclick="loadReports(${page + 1})">Next ›</button>`;
+  btns += `<button class="btn btn-sm ghost-btn" ${page === totalPages ? "disabled" : ""} onclick="loadReports(${page + 1})">Next ›</button>`;
 
   container.innerHTML = `
-    <div class="page-info">${startItem}–${endItem} of ${total} reports</div>
-    ${btns}`;
+    <div class="page-info text-muted text-xs" style="margin-bottom:8px;">${startItem}–${endItem} of ${total} reports</div>
+    <div class="flex gap-8">${btns}</div>`;
 }
 
 function pageRange(current, total) {
@@ -230,7 +241,7 @@ function openReport(objectName) {
   iframe.src           = `/api/reports/${objectName}`;
   state.modal.open     = true;
   state.modal.objectName = objectName;
-  modal.classList.add("open");
+  modal.classList.remove("hidden");
   document.body.style.overflow = "hidden";
 }
 
@@ -238,28 +249,18 @@ function closeModal() {
   const modal  = $("#report-modal");
   const iframe = $("#report-iframe");
   iframe.src   = "about:blank";
-  modal.classList.remove("open");
+  modal.classList.add("hidden");
   state.modal.open = false;
   document.body.style.overflow = "";
 }
 
 // ─── AI Provider toggle ───────────────────────────────────────────────────────
-/**
- * Called when the user clicks an OCI / Claude button.
- * Immediately updates the button UI and the topbar badge.
- * Does NOT save — user still needs to click "Save Settings".
- */
 function selectProvider(provider) {
   $$(".provider-btn").forEach(btn => btn.classList.remove("active"));
   $(`#btn-provider-${provider}`)?.classList.add("active");
   updateProviderUI(provider, false);
 }
 
-/**
- * Sync the topbar badge and the hint text to the given provider.
- * @param {string}  provider  'oci' | 'claude'
- * @param {boolean} save      if true, also persist via POST /api/config
- */
 function updateProviderUI(provider, save = false) {
   const badge     = $("#provider-badge");
   const hintName  = $("#provider-hint-name");
@@ -267,15 +268,15 @@ function updateProviderUI(provider, save = false) {
   if (provider === "claude") {
     if (badge) {
       badge.textContent = "✦ Claude Sonnet";
-      badge.className   = "provider-badge provider-claude";
+      badge.className   = "provider-badge provider-claude neon-text-purple";
     }
-    if (hintName) hintName.textContent = "Anthropic Claude Sonnet";
+    if (hintName) { hintName.textContent = "Anthropic Claude Sonnet"; hintName.className = "neon-text"; }
   } else {
     if (badge) {
-      badge.textContent = "⚙ OCI Gen AI";
-      badge.className   = "provider-badge provider-oci";
+      badge.textContent = "☁ OCI Gen AI";
+      badge.className   = "provider-badge provider-oci neon-text-cyan";
     }
-    if (hintName) hintName.textContent = "OCI Gen AI";
+    if (hintName) { hintName.textContent = "OCI Gen AI"; hintName.className = "neon-text-cyan"; }
   }
 
   if (save) {
@@ -296,9 +297,15 @@ async function loadConfig() {
     const res  = await fetch("/api/config");
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to load config");
+    
     state.config = data;
+    if (!state.config.saved_pats) state.config.saved_pats = [];
+    if (!state.config.saved_repos) state.config.saved_repos = [];
+    
     populateConfigForm(data);
-    // Sync provider badge in topbar
+    renderPATTable();
+    populateReviewFormOptions();
+    
     if (data.ai_provider) updateProviderUI(data.ai_provider, false);
   } catch (err) {
     toast("Could not load config: " + err.message, "error");
@@ -312,13 +319,11 @@ function populateConfigForm(cfg) {
   set("#cfg-bucket",        cfg.bucket_name);
   set("#cfg-endpoint",      cfg.endpoint);
 
-  // Provider toggle buttons
   if (cfg.ai_provider) {
     $$("#provider-toggle-group .provider-btn").forEach(btn => btn.classList.remove("active"));
     $(`#btn-provider-${cfg.ai_provider}`)?.classList.add("active");
   }
 
-  // Active agents (Settings tab)
   if (cfg.enabled_agents) {
     ALL_AGENTS.forEach(agent => {
       const cb = $(`#agent-${agent}`);
@@ -328,13 +333,8 @@ function populateConfigForm(cfg) {
         chip.classList.toggle("active", cb.checked);
       }
     });
-    // This function exists from the toggles setup
-    if (typeof updateAgentCountHint === "function") {
-      updateAgentCountHint();
-    }
   }
 
-  // Prompts
   if (cfg.prompts) {
     Object.entries(cfg.prompts).forEach(([agent, text]) => {
       const ta = $(`#prompt-${agent}`);
@@ -354,7 +354,6 @@ async function saveConfig() {
     if (ta) prompts[agent] = ta.value;
   });
 
-  // Determine selected provider from the active button
   const activeProviderBtn = $("#provider-toggle-group .provider-btn.active");
   const selectedProvider  = activeProviderBtn?.id?.replace("btn-provider-", "") || "oci";
 
@@ -366,6 +365,8 @@ async function saveConfig() {
     endpoint:       $("#cfg-endpoint")?.value.trim(),
     enabled_agents: getEnabledAgents(),
     prompts,
+    saved_pats:     state.config.saved_pats,
+    saved_repos:    state.config.saved_repos
   };
 
   try {
@@ -376,15 +377,158 @@ async function saveConfig() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Save failed");
-    toast(`Config saved: ${data.updated?.join(", ")}`, "success");
+    toast(`Config saved successfully`, "success");
     updateProviderUI(selectedProvider, false);
   } catch (err) {
     toast(err.message, "error");
   } finally {
     btn.disabled    = false;
-    btn.textContent = "Save Settings";
+    btn.textContent = "💾 Save Configuration";
   }
 }
+
+// ─── PAT MANAGEMENT ──────────────────────────────────────────────────────────
+function renderPATTable() {
+  const tbody = $("#pat-table tbody");
+  if (!tbody) return;
+  
+  tbody.innerHTML = state.config.saved_pats.map((pat, index) => `
+    <tr>
+      <td>${pat.name}</td>
+      <td>${pat.username}</td>
+      <td>
+        <button class="btn btn-sm btn-icon ghost-btn" style="color:var(--neon-pink)" onclick="deletePAT(${index})" title="Delete Token">🗑️</button>
+      </td>
+    </tr>
+  `).join("");
+  
+  if (state.config.saved_pats.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="3" class="text-muted text-center" style="text-align:center">No tokens saved yet.</td></tr>`;
+  }
+}
+
+async function addPAT() {
+  const name = $("#new-pat-name").value.trim();
+  const username = $("#new-pat-user").value.trim();
+  const token = $("#new-pat-token").value.trim();
+  
+  if (!name || !username || !token) {
+      toast("Please fill in all token fields.", "error");
+      return;
+  }
+  
+  state.config.saved_pats.push({ name, username, token });
+  $("#new-pat-name").value = "";
+  $("#new-pat-user").value = "";
+  $("#new-pat-token").value = "";
+  
+  renderPATTable();
+  await saveConfig();
+}
+
+async function deletePAT(index) {
+  if (confirm("Are you sure you want to delete this token?")) {
+      state.config.saved_pats.splice(index, 1);
+      renderPATTable();
+      await saveConfig();
+  }
+}
+
+// ─── REPO MANAGEMENT & DROPDOWNS ──────────────────────────────────────────────
+function populateReviewFormOptions() {
+  const patSelect = $("#review-pat");
+  const repoSelect = $("#review-repo-select");
+  
+  if (!patSelect || !repoSelect) return;
+  
+  // PATs
+  // Remember currently selected
+  const currPat = patSelect.value;
+  patSelect.innerHTML = `<option value="" disabled ${!currPat ? 'selected' : ''}>Select a Personal Access Token...</option>`;
+  state.config.saved_pats.forEach((pat, i) => {
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = `${pat.name} (${pat.username})`;
+      patSelect.appendChild(opt);
+  });
+  if (currPat && state.config.saved_pats[currPat]) patSelect.value = currPat;
+  
+  // Repos
+  const currRepo = repoSelect.value;
+  repoSelect.innerHTML = `<option value="" disabled ${!currRepo ? 'selected' : ''}>Select a saved repository...</option>`;
+  state.config.saved_repos.forEach(repo => {
+      const opt = document.createElement("option");
+      opt.value = repo;
+      opt.textContent = repo;
+      repoSelect.appendChild(opt);
+  });
+  if (currRepo && state.config.saved_repos.includes(currRepo)) repoSelect.value = currRepo;
+}
+
+function handleSingleBranchToggle() {
+    const isSingle = $("#review-single-branch").checked;
+    const targetGroup = $("#group-target-branch");
+    
+    if (isSingle) {
+        targetGroup.classList.add("hidden");
+        $("#label-source-branch").textContent = "Branch to review *";
+        $("#hint-source-branch").textContent = "The branch that will be completely analyzed";
+    } else {
+        targetGroup.classList.remove("hidden");
+        $("#label-source-branch").textContent = "Source Branch *";
+        $("#hint-source-branch").textContent = "The feature / MR branch";
+    }
+}
+
+async function fetchBranches() {
+    const patIdx = $("#review-pat").value;
+    const repoUrl = $("#review-repo-select").value;
+    
+    if (!patIdx || !repoUrl) {
+        toast("Please select a Token and a Repository first.", "error");
+        return;
+    }
+    
+    const pat = state.config.saved_pats[patIdx];
+    if (!pat) return;
+    
+    const btn = $("#fetch-branches-btn");
+    btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;border-width:2px"></span>`;
+    btn.disabled = true;
+    
+    try {
+        const res = await fetch("/api/git/branches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                repo_url: repoUrl,
+                git_pat: pat.token,
+                git_username: pat.username
+            })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to fetch branches");
+        
+        const sourceSelect = $("#review-source");
+        const targetSelect = $("#review-target");
+        
+        const optionsHtml = data.branches.map(b => `<option value="${b}">${b}</option>`).join("");
+        const defaultHtml = `<option value="">Select branch...</option>`;
+        
+        sourceSelect.innerHTML = defaultHtml + optionsHtml;
+        targetSelect.innerHTML = defaultHtml + optionsHtml;
+        
+        toast(`Fetched ${data.branches.length} branches successfully`, "success");
+        
+    } catch (e) {
+        toast(e.message, "error");
+    } finally {
+        btn.innerHTML = "⬇️";
+        btn.disabled = false;
+    }
+}
+
 
 // ─── Agent Toggles ───────────────────────────────────────────────────────────
 const ALL_AGENTS = ["security", "logic", "performance", "dependency", "style"];
@@ -396,19 +540,11 @@ function initAgentToggles() {
     if (!chip || !cb) return;
 
     chip.addEventListener("click", (e) => {
-      e.preventDefault(); // prevent double-fire from label+input
+      e.preventDefault(); 
       cb.checked = !cb.checked;
       chip.classList.toggle("active", cb.checked);
-      updateAgentCountHint();
     });
   });
-  updateAgentCountHint();
-}
-
-function updateAgentCountHint() {
-  const active = ALL_AGENTS.filter(a => $(`#agent-${a}`)?.checked).length;
-  const hint   = $("#agent-count-hint");
-  if (hint) hint.textContent = `${active} of ${ALL_AGENTS.length} agents active`;
 }
 
 function getEnabledAgents() {
@@ -422,20 +558,37 @@ async function runReview() {
   const resultEl = $("#review-result");
   const bar      = $("#review-bar");
 
+  const patIdx = $("#review-pat").value;
+  const repoUrl = $("#review-repo-select").value;
+  const sourceBranch = $("#review-source").value;
+  const targetBranch = $("#review-target").value;
+  const isSingle = $("#review-single-branch").checked;
+  const prId = $("#review-pr-id").value.trim();
+  
+  if (!patIdx || !repoUrl) {
+      toast("Token and Repository are required.", "error"); return;
+  }
+  if (!sourceBranch) {
+      toast("Source/Target branch required.", "error"); return;
+  }
+  if (!isSingle && !targetBranch) {
+      toast("Target branch required when not doing single-branch mode.", "error"); return;
+  }
+  
+  const pat = state.config.saved_pats[patIdx];
+
   const payload = {
-    repo_url:       $("#review-repo")?.value.trim(),
-    source_branch:  $("#review-source")?.value.trim(),
-    target_branch:  $("#review-target")?.value.trim(),
-    pr_id:          $("#review-pr-id")?.value.trim(),
+    repo_url:       repoUrl,
+    source_branch:  sourceBranch,
+    target_branch:  targetBranch,
+    pr_id:          prId,
+    git_pat:        pat.token,
+    git_username:   pat.username,
+    is_single_branch: isSingle
   };
 
-  if (!payload.repo_url || !payload.source_branch || !payload.target_branch) {
-    toast("Please fill in Repo URL, Source Branch, and Target Branch.", "error");
-    return;
-  }
-
   btn.disabled          = true;
-  btn.innerHTML         = `<span class="spinner"></span> Running…`;
+  btn.innerHTML         = `<span class="spinner" style="width:16px;height:16px"></span> Analyzing...`;
   progress?.classList.remove("hidden");
   resultEl.innerHTML    = "";
   resultEl.className    = "review-result";
@@ -458,57 +611,51 @@ async function runReview() {
     const s = data.summary;
     const severities = Object.entries(s.severity_counts || {})
       .filter(([, v]) => v > 0)
-      .map(([k, v]) => `<span class="stat-chip ${k.toLowerCase()}">${k}: ${v}</span>`)
+      .map(([k, v]) => `<span style="margin-right: 15px; padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.1)">${k}: <b>${v}</b></span>`)
       .join("");
 
-    resultEl.className = "review-result success";
+    resultEl.className = "card glass";
     resultEl.innerHTML = `
-      <div class="flex items-center gap-12" style="margin-bottom:12px;">
-        <span style="font-size:22px;">✅</span>
+      <div class="flex items-center gap-12" style="margin-bottom:15px; border-bottom: 1px solid var(--glass-border); padding-bottom: 15px;">
+        <span style="font-size:26px;">✅</span>
         <div>
-          <div style="font-weight:700;font-size:15px;">Review Complete</div>
+          <div style="font-weight:700;font-size:16px; color: var(--neon-cyan)">Scan Complete</div>
           <div class="text-muted" style="font-size:12px;">Elapsed: ${s.elapsed_seconds}s</div>
         </div>
-        <span class="badge ${statusBadge(s.overall_status)} ml-auto">${s.overall_status}</span>
+        <span class="badge ml-auto" style="border: 1px solid var(--glass-border); padding: 5px 12px; border-radius: 20px;">${s.overall_status}</span>
       </div>
-      <div class="stat-chips">
-        <span class="stat-chip"><strong>Total:</strong> ${s.total_findings} findings</span>
-        ${severities}
+      <div>
+        <div style="margin-bottom:10px;"><strong>Total:</strong> ${s.total_findings} findings discovered</div>
+        <div>${severities}</div>
       </div>
-      ${data.oci_uploaded ? `<div class="mt-8 text-muted" style="font-size:12px;">☁ Uploaded to OCI: <span class="font-mono">${data.oci_object}</span></div>` : ""}
+      ${data.oci_uploaded ? `<div class="mt-8 text-muted" style="font-size:12px; margin-top:20px;">☁ Archived to OCI Storage</div>` : ""}
     `;
 
-    toast("Review complete! Loading report inline…", "success", 5000);
+    toast("Review complete! Loading report...", "success", 5000);
 
-    // ── Show the report inline on the same page ──────────────────────
     if (data.report_filename) {
       showInlineReport(data.report_filename);
     }
 
-    // Refresh reports list if on that tab
     if (state.currentView === "reports") {
       loadReports(1);
     }
 
   } catch (err) {
     bar?.classList.remove("indeterminate");
-    resultEl.className = "review-result error";
-    resultEl.innerHTML = `<span style="font-size:20px;">❌</span> <strong>Error:</strong> ${err.message}`;
+    resultEl.className = "card glass";
+    resultEl.style.borderColor = "var(--neon-pink)";
+    resultEl.innerHTML = `<span style="font-size:20px;">❌</span> <strong>System Error:</strong> ${err.message}`;
     toast(err.message, "error");
   } finally {
     btn.disabled      = false;
-    btn.innerHTML     = "🚀 Run Review";
+    btn.innerHTML     = "🚀 Initialize Scan";
     if (bar) bar.style.width = "100%";
     setTimeout(() => progress?.classList.add("hidden"), 1000);
   }
 }
 
 // ─── Inline Report Viewer ────────────────────────────────────────────────────
-/**
- * Load the freshly-generated report into the inline iframe panel.
- * Uses the local-report endpoint so the user doesn't have to wait for OCI.
- * @param {string} filename  bare filename, e.g. "review_PR42_20260312_161812.html"
- */
 function showInlineReport(filename) {
   const panel    = $("#inline-report-panel");
   const iframe   = $("#inline-report-iframe");
@@ -523,8 +670,6 @@ function showInlineReport(filename) {
   iframe.src             = url;
 
   panel.classList.remove("hidden");
-
-  // Smooth scroll so the user sees the report without manual scrolling
   setTimeout(() => panel.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
 }
 
@@ -561,51 +706,70 @@ function switchAgentTab(agent) {
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+    
+  initTheme();
+  initParticles();
 
-  // Navigation
+  // Load config immediately to populate dropdowns across views
+  loadConfig();
+
   $$(".nav-item").forEach(item => {
     item.addEventListener("click", () => navigateTo(item.dataset.view));
   });
 
-  // Modal close
   $("#modal-close")?.addEventListener("click", closeModal);
   $("#report-modal")?.addEventListener("click", (e) => {
     if (e.target === e.currentTarget) closeModal();
   });
 
-  // Keyboard shortcut: Escape closes modal
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state.modal.open) closeModal();
   });
 
-  // Filter form
   $("#filter-apply")?.addEventListener("click", applyFilters);
   $("#filter-clear")?.addEventListener("click", clearFilters);
-  // Support pressing Enter on date inputs
   ["filter-from", "filter-to"].forEach(id => {
     $(`#${id}`)?.addEventListener("keydown", (e) => { if (e.key === "Enter") applyFilters(); });
   });
 
-  // Agent prompt tabs
   $$(".agent-tab").forEach(tab => {
     tab.addEventListener("click", () => switchAgentTab(tab.dataset.agent));
   });
 
-  // Save config
   $("#save-config-btn")?.addEventListener("click", saveConfig);
-
-  // Run review
   $("#run-review-btn")?.addEventListener("click", runReview);
 
-  // Agent toggle chips
+  // PAT Add btn
+  $("#btn-add-pat")?.addEventListener("click", addPAT);
+  
+  // Repo Add/Cancel logic
+  $("#add-repo-btn")?.addEventListener("click", () => {
+      $("#add-repo-form").classList.remove("hidden");
+  });
+  $("#cancel-new-repo-btn")?.addEventListener("click", () => {
+      $("#add-repo-form").classList.add("hidden");
+  });
+  $("#save-new-repo-btn")?.addEventListener("click", async () => {
+      const url = $("#new-repo-url").value.trim();
+      if (!url) return;
+      if (!state.config.saved_repos.includes(url)) {
+          state.config.saved_repos.push(url);
+          await saveConfig();
+          populateReviewFormOptions();
+          $("#new-repo-url").value = "";
+          $("#add-repo-form").classList.add("hidden");
+      }
+  });
+  
+  $("#review-single-branch")?.addEventListener("change", handleSingleBranchToggle);
+  $("#fetch-branches-btn")?.addEventListener("click", fetchBranches);
+
   initAgentToggles();
 
-  // Page size change
   $("#page-size-select")?.addEventListener("change", (e) => {
     state.reports.pageSize = parseInt(e.target.value, 10);
     loadReports(1);
   });
 
-  // Initial load
   navigateTo("reports");
 });
