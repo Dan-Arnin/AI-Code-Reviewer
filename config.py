@@ -155,11 +155,39 @@ SUGGESTION_PRACTICES = {
 _RUNTIME_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".runtime_config.json")
 
 
+def _get_storage_auth() -> Dict[str, Any]:
+    """Returns auth configuration exclusively from Environment Variables for the Object Storage linkage."""
+    import oci
+    auth_method = os.getenv("OCI_STORAGE_AUTH_METHOD", "instance_principal")
+    if auth_method == "instance_principal":
+        signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+        cfg = {}
+        region = os.getenv("OCI_STORAGE_REGION")
+        if region:
+            cfg["region"] = region
+        return {"signer": signer, "config": cfg}
+    elif auth_method == "keys":
+        key_content = os.getenv("OCI_STORAGE_KEY_CONTENT", "")
+        if r"\n" in key_content:
+            key_content = key_content.replace(r"\n", "\n")
+        cfg = {
+            "user": os.getenv("OCI_STORAGE_USER", ""),
+            "key_content": key_content,
+            "fingerprint": os.getenv("OCI_STORAGE_FINGERPRINT", ""),
+            "tenancy": os.getenv("OCI_STORAGE_TENANCY", ""),
+            "region": os.getenv("OCI_STORAGE_REGION", "")
+        }
+        oci.config.validate_config(cfg)
+        return {"config": cfg}
+    else:
+        cfg = oci.config.from_file("~/.oci/config", os.getenv("OCI_STORAGE_CONFIG_PROFILE", "DEFAULT"))
+        return {"config": cfg}
+
 class _RuntimeConfig:
     """
     Singleton that holds live config overrides.
     Values here take precedence over the module-level constants above.
-    Persisted to a local JSON file so overrides survive restarts.
+    Persisted to OCI Object Storage if OCI_BUCKET_NAME is set, otherwise a local JSON file.
     """
 
     _DEFAULTS: Dict[str, Any] = {}
@@ -168,20 +196,57 @@ class _RuntimeConfig:
         self._data: Dict[str, Any] = {}
         self._load()
 
+    def _get_storage_client(self):
+        import oci
+        auth_dict = _get_storage_auth()
+        kw = {"config": auth_dict.get("config", {})}
+        if "signer" in auth_dict:
+            kw["signer"] = auth_dict["signer"]
+        return oci.object_storage.ObjectStorageClient(**kw)
+
     def _load(self) -> None:
-        if os.path.exists(_RUNTIME_CONFIG_FILE):
+        self._data = {}
+        bucket = os.getenv("OCI_BUCKET_NAME", "")
+        if bucket:
             try:
-                with open(_RUNTIME_CONFIG_FILE, "r", encoding="utf-8") as fh:
-                    self._data = json.load(fh)
-            except Exception:
-                self._data = {}
+                import json
+                client = self._get_storage_client()
+                namespace = client.get_namespace().data
+                obj_name = os.getenv("OCI_CONFIG_JSON_OBJECT_NAME", "config/runtime_config.json")
+                resp = client.get_object(namespace, bucket, obj_name)
+                self._data = json.loads(resp.data.content.decode("utf-8"))
+            except Exception as e:
+                print(f"Failed to load config from OCI Storage: {e}")
+                pass
+        else:
+            if os.path.exists(_RUNTIME_CONFIG_FILE):
+                try:
+                    import json
+                    with open(_RUNTIME_CONFIG_FILE, "r", encoding="utf-8") as fh:
+                        self._data = json.load(fh)
+                except Exception:
+                    pass
 
     def _save(self) -> None:
-        try:
-            with open(_RUNTIME_CONFIG_FILE, "w", encoding="utf-8") as fh:
-                json.dump(self._data, fh, indent=2)
-        except Exception:
-            pass
+        bucket = os.getenv("OCI_BUCKET_NAME", "")
+        if bucket:
+            try:
+                import json
+                client = self._get_storage_client()
+                namespace = client.get_namespace().data
+                obj_name = os.getenv("OCI_CONFIG_JSON_OBJECT_NAME", "config/runtime_config.json")
+                content = json.dumps(self._data, indent=2).encode("utf-8")
+                client.put_object(namespace, bucket, obj_name, content)
+            except Exception as e:
+                print(f"Failed to save config to OCI Storage: {e}")
+                pass
+        else:
+            try:
+                import json
+                with open(_RUNTIME_CONFIG_FILE, "w", encoding="utf-8") as fh:
+                    json.dump(self._data, fh, indent=2)
+            except Exception:
+                pass
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, default)
@@ -196,7 +261,6 @@ class _RuntimeConfig:
 
     def as_dict(self) -> Dict[str, Any]:
         return dict(self._data)
-
 
 runtime_config = _RuntimeConfig()
 
@@ -231,6 +295,9 @@ def get_oci_auth(service: str = None) -> Dict[str, Any]:
         Or:
           {"signer": <instance_principal_signer>, "config": {}}
     """
+    if service == "storage":
+        return _get_storage_auth()
+
     import oci
     auth_method = runtime_config.get("oci_auth_method", "config_file")
     endpoint = runtime_config.get("endpoint", "")
@@ -255,7 +322,7 @@ def get_oci_auth(service: str = None) -> Dict[str, Any]:
             "tenancy": runtime_config.get("oci_tenancy_ocid", ""),
             "region": target_region
         }
-        oci.config.validateconfig(cfg)
+        oci.config.validate_config(cfg)
         return {"config": cfg}
     else:
         # Default config file behavior

@@ -325,7 +325,7 @@
                 
                 <!-- OCI Connection -->
                 <div class="settings-section">
-                    <div class="settings-section-title">☁ OCI Storage Link</div>
+                    <div class="settings-section-title">☁ OCI Gen AI Config</div>
                     <div class="card glass">
                         <div class="form-row">
                             <div class="form-group flex-1">
@@ -354,7 +354,7 @@
                                     <input type="text" id="cfg-oci-fingerprint" class="input-glass" placeholder="Fingerprint" />
                                 </div>
                                 <div class="form-group flex-1">
-                                    <input type="text" id="cfg-oci-region" class="input-glass" placeholder="Region (e.g. us-chicago-1)" />
+                                    <input type="text" id="cfg-oci-region" class="input-glass" placeholder="Region (Fallback)" />
                                 </div>
                             </div>
                             <div class="form-group">
@@ -364,21 +364,12 @@
 
                         <div class="form-row">
                             <div class="form-group flex-1">
-                                <label class="form-label">Storage Compartment</label>
+                                <label class="form-label">Gen AI Compartment</label>
                                 <div class="flex gap-8">
                                     <select id="cfg-compartment" class="input-glass flex-1">
                                         <option value="">Select Compartment...</option>
                                     </select>
                                     <button class="btn btn-secondary ghost-btn" id="btn-fetch-compartments">↻</button>
-                                </div>
-                            </div>
-                            <div class="form-group flex-1">
-                                <label class="form-label">Bucket Name</label>
-                                <div class="flex gap-8">
-                                    <select id="cfg-bucket" class="input-glass flex-1">
-                                        <option value="">Select Bucket...</option>
-                                    </select>
-                                    <button class="btn btn-secondary ghost-btn" id="btn-fetch-buckets">↻</button>
                                 </div>
                             </div>
                         </div>

@@ -343,7 +343,6 @@ function populateConfigForm(cfg) {
   
   ensureSelectOption("#cfg-model-id", cfg.model_id);
   ensureSelectOption("#cfg-compartment", cfg.compartment_id);
-  ensureSelectOption("#cfg-bucket", cfg.bucket_name);
   
   set("#cfg-endpoint",      cfg.endpoint);
 
@@ -389,7 +388,6 @@ async function saveConfig() {
     ai_provider:    selectedProvider,
     model_id:       $("#cfg-model-id")?.value.trim(),
     compartment_id: $("#cfg-compartment")?.value.trim(),
-    bucket_name:    $("#cfg-bucket")?.value.trim(),
     endpoint:       $("#cfg-endpoint")?.value.trim(),
     
     // OCI Auth Config
@@ -784,28 +782,6 @@ async function fetchOCICompartments() {
     }
 }
 
-async function fetchOCIBuckets() {
-    const compartmentId = $("#cfg-compartment").value;
-    if (!compartmentId) return toast("Select a Compartment first", "error");
-    
-    const btn = $("#btn-fetch-buckets");
-    if (btn) { btn.disabled = true; btn.innerHTML = "↻..."; }
-    try {
-        const res = await fetch(`/api/oci/buckets?compartment_id=${encodeURIComponent(compartmentId)}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error);
-        
-        const select = $("#cfg-bucket");
-        select.innerHTML = `<option value="">Select Bucket...</option>` + 
-            data.buckets.map(b => `<option value="${b.name}">${b.name}</option>`).join("");
-        toast(`Loaded ${data.buckets.length} buckets`, "success");
-    } catch (e) {
-        toast("Failed loading buckets: " + e.message, "error");
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = "↻"; }
-    }
-}
-
 async function fetchOCIModels() {
     const compartmentId = $("#cfg-compartment").value;
     if (!compartmentId) return toast("Select a Compartment first", "error");
@@ -866,7 +842,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // OCI UI Binding
   $("#cfg-oci-auth")?.addEventListener("change", handleOCIAuthChange);
   $("#btn-fetch-compartments")?.addEventListener("click", fetchOCICompartments);
-  $("#btn-fetch-buckets")?.addEventListener("click", fetchOCIBuckets);
   $("#btn-fetch-models")?.addEventListener("click", fetchOCIModels);
 
   // PAT Add btn
