@@ -264,6 +264,8 @@ def list_reports():
         page_size (int, default 20)
         from      (str, YYYY-MM-DD, optional)
         to        (str, YYYY-MM-DD, optional)
+        repo      (str, optional)
+        branch    (str, optional)
     """
     try:
         page      = max(1, int(request.args.get("page", 1)))
@@ -274,6 +276,8 @@ def list_reports():
 
         from_str = request.args.get("from", "")
         to_str   = request.args.get("to", "")
+        repo_filter   = request.args.get("repo", "").lower()
+        branch_filter = request.args.get("branch", "").lower()
 
         if from_str:
             from_date = datetime.strptime(from_str, "%Y-%m-%d").replace(tzinfo=None)
@@ -285,12 +289,36 @@ def list_reports():
 
         storage = OCIStorageClient()
         result  = storage.list_objects(
-            page=page,
-            page_size=page_size,
+            page=1, # We filter locally, so fetch all then slice
+            page_size=10000,
             from_date=from_date,
             to_date=to_date,
             prefix="reports/",
         )
+        
+        filtered_items = []
+        for item in result["items"]:
+            # item["name"] format: reports/Repo_SourceBranch_[TargetBranch_]YYYY...
+            name_lower = item["name"].lower()
+            if repo_filter and repo_filter not in name_lower:
+                continue
+            if branch_filter and branch_filter not in name_lower:
+                continue
+            filtered_items.append(item)
+            
+        total = len(filtered_items)
+        total_pages = max(1, -(-total // page_size))
+        start = (page - 1) * page_size
+        page_items = filtered_items[start:start + page_size]
+        
+        result.update({
+            "items": page_items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        })
+        
         return jsonify(result), 200
 
     except Exception as exc:
@@ -341,6 +369,13 @@ def get_config():
         },
         "saved_repos":    runtime_config.get("saved_repos", []),
         "saved_pats":     runtime_config.get("saved_pats", []),
+        "oci_auth_method": runtime_config.get("oci_auth_method", "config_file"),
+        "oci_user_ocid":   runtime_config.get("oci_user_ocid", ""),
+        "oci_fingerprint": runtime_config.get("oci_fingerprint", ""),
+        "oci_tenancy_ocid": runtime_config.get("oci_tenancy_ocid", ""),
+        "oci_region":      runtime_config.get("oci_region", ""),
+        "oci_private_key": runtime_config.get("oci_private_key", ""),
+        
         "_overrides": runtime_config.as_dict(),
     }
     return jsonify(effective), 200
@@ -377,6 +412,10 @@ def update_config():
 
     if "saved_pats" in data and isinstance(data["saved_pats"], list):
         updates["saved_pats"] = data["saved_pats"]
+
+    for field in ("oci_auth_method", "oci_user_ocid", "oci_fingerprint", "oci_tenancy_ocid", "oci_region", "oci_private_key"):
+        if field in data:
+            updates[field] = data[field]
 
     if "prompts" in data and isinstance(data["prompts"], dict):
         for agent, text in data["prompts"].items():
@@ -418,6 +457,83 @@ def get_git_branches():
         return jsonify({"status": "success", "branches": branches}), 200
     except Exception as exc:
         log.error("Failed to fetch branches: %s", exc)
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+
+# ---------------------------------------------------------------------------
+# OCI API (Resource Fetching)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/oci/compartments", methods=["GET"])
+def get_oci_compartments():
+    try:
+        import oci
+        from config import get_oci_auth
+        auth = get_oci_auth(service="identity")
+        kw = {"config": auth.get("config", {})}
+        if "signer" in auth:
+            kw["signer"] = auth["signer"]
+            
+        # Get tenancy from config or signer
+        tenancy_id = kw["config"].get("tenancy")
+        if not tenancy_id and "signer" in kw:
+            tenancy_id = kw["signer"].tenancy_id
+            
+        client = oci.identity.IdentityClient(**kw)
+        resp = client.list_compartments(
+            compartment_id=tenancy_id,
+            compartment_id_in_subtree=True,
+            access_level="ACCESSIBLE",
+            limit=200
+        )
+        # Use .items if it's a collection object, else use .data directly
+        data_list = resp.data.items if hasattr(resp.data, 'items') and not isinstance(resp.data, list) else resp.data
+        return jsonify({"status": "success", "compartments": [{"id": c.id, "name": c.name} for c in data_list]}), 200
+    except Exception as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+@app.route("/api/oci/buckets", methods=["GET"])
+def get_oci_buckets():
+    try:
+        import oci
+        from config import get_oci_auth
+        compartment_id = request.args.get("compartment_id")
+        if not compartment_id:
+            return jsonify({"status": "error", "error": "compartment_id query param required"}), 400
+            
+        auth = get_oci_auth(service="storage")
+        kw = {"config": auth.get("config", {})}
+        if "signer" in auth:
+            kw["signer"] = auth["signer"]
+            
+        client = oci.object_storage.ObjectStorageClient(**kw)
+        namespace = client.get_namespace().data
+        resp = client.list_buckets(namespace_name=namespace, compartment_id=compartment_id, limit=200)
+        data_list = resp.data.items if hasattr(resp.data, 'items') and not isinstance(resp.data, list) else resp.data
+        return jsonify({"status": "success", "buckets": [{"name": b.name} for b in data_list]}), 200
+    except Exception as exc:
+        return jsonify({"status": "error", "error": str(exc)}), 500
+
+@app.route("/api/oci/models", methods=["GET"])
+def get_oci_models():
+    try:
+        import oci
+        from config import get_oci_auth
+        compartment_id = request.args.get("compartment_id")
+        if not compartment_id:
+            return jsonify({"status": "error", "error": "compartment_id query param required"}), 400
+            
+        auth = get_oci_auth(service="genai")
+        kw = {"config": auth.get("config", {})}
+        if "signer" in auth:
+            kw["signer"] = auth["signer"]
+            
+        client = oci.generative_ai.GenerativeAiClient(**kw)
+        resp = client.list_models(compartment_id=compartment_id, sort_order="ASC", sort_by="timeCreated")
+        # GenerativeAi models are returned in a ModelCollection which has an 'items' list
+        data_list = resp.data.items if hasattr(resp.data, 'items') else resp.data
+        return jsonify({"status": "success", "models": [{"id": m.id, "name": m.display_name} for m in data_list]}), 200
+    except Exception as exc:
         return jsonify({"status": "error", "error": str(exc)}), 500
 
 

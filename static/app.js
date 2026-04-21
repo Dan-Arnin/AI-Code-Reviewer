@@ -12,9 +12,10 @@ const state = {
     pageSize:    20,
     totalPages:  1,
     total:       0,
-    loading:     false,
     from:        "",
     to:          "",
+    repo:        "",
+    branch:      "",
   },
   config: {
     saved_pats: [],
@@ -100,6 +101,8 @@ async function loadReports(page = null) {
   });
   if (state.reports.from) params.set("from", state.reports.from);
   if (state.reports.to)   params.set("to",   state.reports.to);
+  if (state.reports.repo) params.set("repo", state.reports.repo);
+  if (state.reports.branch) params.set("branch", state.reports.branch);
 
   try {
     const res  = await fetch(`/api/reports?${params}`);
@@ -314,9 +317,34 @@ async function loadConfig() {
 
 function populateConfigForm(cfg) {
   const set = (id, val) => { const el = $(id); if (el) el.value = val || ""; };
-  set("#cfg-model-id",      cfg.model_id);
-  set("#cfg-compartment",   cfg.compartment_id);
-  set("#cfg-bucket",        cfg.bucket_name);
+  
+  // OCI Auth Method
+  set("#cfg-oci-auth", cfg.oci_auth_method || "config_file");
+  handleOCIAuthChange();
+  
+  set("#cfg-oci-user", cfg.oci_user_ocid);
+  set("#cfg-oci-tenancy", cfg.oci_tenancy_ocid);
+  set("#cfg-oci-fingerprint", cfg.oci_fingerprint);
+  set("#cfg-oci-region", cfg.oci_region);
+  set("#cfg-oci-key", cfg.oci_private_key);
+
+  // For selects, if options are not loaded yet, add the option dynamically
+  const ensureSelectOption = (id, val) => {
+      if (!val) return;
+      const el = $(id);
+      if (el && ![...el.options].some(o => o.value === val)) {
+          const opt = document.createElement("option");
+          opt.value = val;
+          opt.textContent = val;
+          el.appendChild(opt);
+      }
+      if (el) el.value = val;
+  };
+  
+  ensureSelectOption("#cfg-model-id", cfg.model_id);
+  ensureSelectOption("#cfg-compartment", cfg.compartment_id);
+  ensureSelectOption("#cfg-bucket", cfg.bucket_name);
+  
   set("#cfg-endpoint",      cfg.endpoint);
 
   if (cfg.ai_provider) {
@@ -363,6 +391,15 @@ async function saveConfig() {
     compartment_id: $("#cfg-compartment")?.value.trim(),
     bucket_name:    $("#cfg-bucket")?.value.trim(),
     endpoint:       $("#cfg-endpoint")?.value.trim(),
+    
+    // OCI Auth Config
+    oci_auth_method:  $("#cfg-oci-auth")?.value,
+    oci_user_ocid:    $("#cfg-oci-user")?.value.trim(),
+    oci_tenancy_ocid: $("#cfg-oci-tenancy")?.value.trim(),
+    oci_fingerprint:  $("#cfg-oci-fingerprint")?.value.trim(),
+    oci_region:       $("#cfg-oci-region")?.value.trim(),
+    oci_private_key:  $("#cfg-oci-key")?.value.trim(),
+
     enabled_agents: getEnabledAgents(),
     prompts,
     saved_pats:     state.config.saved_pats,
@@ -682,16 +719,23 @@ function closeInlineReport() {
 
 // ─── Filter handlers ──────────────────────────────────────────────────────────
 function applyFilters() {
-  state.reports.from = $("#filter-from")?.value || "";
-  state.reports.to   = $("#filter-to")?.value || "";
+  state.reports.from   = $("#filter-from")?.value || "";
+  state.reports.to     = $("#filter-to")?.value || "";
+  state.reports.repo   = $("#filter-repo")?.value || "";
+  state.reports.branch = $("#filter-branch")?.value || "";
   loadReports(1);
 }
 
 function clearFilters() {
-  if ($("#filter-from")) $("#filter-from").value = "";
-  if ($("#filter-to"))   $("#filter-to").value   = "";
-  state.reports.from = "";
-  state.reports.to   = "";
+  if ($("#filter-from"))   $("#filter-from").value   = "";
+  if ($("#filter-to"))     $("#filter-to").value     = "";
+  if ($("#filter-repo"))   $("#filter-repo").value   = "";
+  if ($("#filter-branch")) $("#filter-branch").value = "";
+  
+  state.reports.from   = "";
+  state.reports.to     = "";
+  state.reports.repo   = "";
+  state.reports.branch = "";
   loadReports(1);
 }
 
@@ -702,6 +746,86 @@ function switchAgentTab(agent) {
   $$(".agent-prompt-panel").forEach(p => p.classList.remove("active"));
   $(`[data-agent="${agent}"]`)?.classList.add("active");
   $(`#agent-panel-${agent}`)?.classList.add("active");
+}
+
+// ─── OCI Fetch handlers ────────────────────────────────────────────────────────
+function handleOCIAuthChange() {
+    const authMethod = $("#cfg-oci-auth")?.value;
+    const keysGroup = $("#cfg-oci-keys-group");
+    if (keysGroup) {
+        if (authMethod === "keys") {
+            keysGroup.classList.remove("hidden");
+        } else {
+            keysGroup.classList.add("hidden");
+        }
+    }
+}
+
+async function fetchOCICompartments() {
+    const btn = $("#btn-fetch-compartments");
+    if (btn) { btn.disabled = true; btn.innerHTML = "↻ Fetching..."; }
+    
+    // Auto-save the config first so auth logic on server is fresh
+    await saveConfig();
+    
+    try {
+        const res = await fetch("/api/oci/compartments");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        
+        const select = $("#cfg-compartment");
+        select.innerHTML = `<option value="">Select Compartment...</option>` + 
+            data.compartments.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+        toast(`Loaded ${data.compartments.length} compartments`, "success");
+    } catch (e) {
+        toast("Failed loading compartments: " + e.message, "error");
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = "↻ Fetch"; }
+    }
+}
+
+async function fetchOCIBuckets() {
+    const compartmentId = $("#cfg-compartment").value;
+    if (!compartmentId) return toast("Select a Compartment first", "error");
+    
+    const btn = $("#btn-fetch-buckets");
+    if (btn) { btn.disabled = true; btn.innerHTML = "↻..."; }
+    try {
+        const res = await fetch(`/api/oci/buckets?compartment_id=${encodeURIComponent(compartmentId)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        
+        const select = $("#cfg-bucket");
+        select.innerHTML = `<option value="">Select Bucket...</option>` + 
+            data.buckets.map(b => `<option value="${b.name}">${b.name}</option>`).join("");
+        toast(`Loaded ${data.buckets.length} buckets`, "success");
+    } catch (e) {
+        toast("Failed loading buckets: " + e.message, "error");
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = "↻"; }
+    }
+}
+
+async function fetchOCIModels() {
+    const compartmentId = $("#cfg-compartment").value;
+    if (!compartmentId) return toast("Select a Compartment first", "error");
+    
+    const btn = $("#btn-fetch-models");
+    if (btn) { btn.disabled = true; btn.innerHTML = "↻..."; }
+    try {
+        const res = await fetch(`/api/oci/models?compartment_id=${encodeURIComponent(compartmentId)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        
+        const select = $("#cfg-model-id");
+        select.innerHTML = `<option value="">Select Model...</option>` + 
+            data.models.map(m => `<option value="${m.id}">${m.name}</option>`).join("");
+        toast(`Loaded ${data.models.length} models`, "success");
+    } catch (e) {
+        toast("Failed loading models: " + e.message, "error");
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = "↻"; }
+    }
 }
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
@@ -728,7 +852,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#filter-apply")?.addEventListener("click", applyFilters);
   $("#filter-clear")?.addEventListener("click", clearFilters);
-  ["filter-from", "filter-to"].forEach(id => {
+  ["filter-from", "filter-to", "filter-repo", "filter-branch"].forEach(id => {
     $(`#${id}`)?.addEventListener("keydown", (e) => { if (e.key === "Enter") applyFilters(); });
   });
 
@@ -738,6 +862,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#save-config-btn")?.addEventListener("click", saveConfig);
   $("#run-review-btn")?.addEventListener("click", runReview);
+  
+  // OCI UI Binding
+  $("#cfg-oci-auth")?.addEventListener("change", handleOCIAuthChange);
+  $("#btn-fetch-compartments")?.addEventListener("click", fetchOCICompartments);
+  $("#btn-fetch-buckets")?.addEventListener("click", fetchOCIBuckets);
+  $("#btn-fetch-models")?.addEventListener("click", fetchOCIModels);
 
   // PAT Add btn
   $("#btn-add-pat")?.addEventListener("click", addPAT);

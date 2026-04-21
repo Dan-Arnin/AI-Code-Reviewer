@@ -88,6 +88,14 @@
                         <label class="text-xs text-muted">To</label>
                         <input type="date" id="filter-to" class="input-glass" title="To date" />
                     </div>
+                    <div class="flex items-center gap-8">
+                        <label class="text-xs text-muted">Repo</label>
+                        <input type="text" id="filter-repo" class="input-glass" placeholder="org/repo" style="max-width:120px;"/>
+                    </div>
+                    <div class="flex items-center gap-8">
+                        <label class="text-xs text-muted">Branch</label>
+                        <input type="text" id="filter-branch" class="input-glass" placeholder="main" style="max-width:100px;"/>
+                    </div>
                     <button class="btn btn-primary btn-sm neon-btn" id="filter-apply">Apply</button>
                     <button class="btn btn-secondary btn-sm ghost-btn" id="filter-clear">Clear</button>
                     <div class="toolbar-spacer"></div>
@@ -321,22 +329,73 @@
                     <div class="card glass">
                         <div class="form-row">
                             <div class="form-group flex-1">
-                                <label class="form-label" for="cfg-model-id">Model OCID</label>
-                                <input type="text" id="cfg-model-id" class="input-glass" placeholder="ocid1.generativeaimodel.oc1…" />
+                                <label class="form-label" for="cfg-oci-auth">Auth Method</label>
+                                <select id="cfg-oci-auth" class="input-glass">
+                                    <option value="config_file">Config Profile (~/.oci/config)</option>
+                                    <option value="keys">Raw Keys</option>
+                                    <option value="instance_principal">Instance Principal</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Raw Keys section -->
+                        <div id="cfg-oci-keys-group" class="hidden glass-panel" style="margin-bottom:20px; padding:15px;">
+                            <h4 style="margin-bottom:10px; font-weight:500;">OCI Credentials</h4>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <input type="text" id="cfg-oci-user" class="input-glass" placeholder="User OCID" />
+                                </div>
+                                <div class="form-group flex-1">
+                                    <input type="text" id="cfg-oci-tenancy" class="input-glass" placeholder="Tenancy OCID" />
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <input type="text" id="cfg-oci-fingerprint" class="input-glass" placeholder="Fingerprint" />
+                                </div>
+                                <div class="form-group flex-1">
+                                    <input type="text" id="cfg-oci-region" class="input-glass" placeholder="Region (e.g. us-chicago-1)" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <textarea id="cfg-oci-key" class="input-glass" rows="4" placeholder="-----BEGIN RSA PRIVATE KEY-----..."></textarea>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label class="form-label">Storage Compartment</label>
+                                <div class="flex gap-8">
+                                    <select id="cfg-compartment" class="input-glass flex-1">
+                                        <option value="">Select Compartment...</option>
+                                    </select>
+                                    <button class="btn btn-secondary ghost-btn" id="btn-fetch-compartments">↻</button>
+                                </div>
+                            </div>
+                            <div class="form-group flex-1">
+                                <label class="form-label">Bucket Name</label>
+                                <div class="flex gap-8">
+                                    <select id="cfg-bucket" class="input-glass flex-1">
+                                        <option value="">Select Bucket...</option>
+                                    </select>
+                                    <button class="btn btn-secondary ghost-btn" id="btn-fetch-buckets">↻</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label class="form-label">Model OCID</label>
+                                <div class="flex gap-8">
+                                    <select id="cfg-model-id" class="input-glass flex-1">
+                                        <option value="">Select Model...</option>
+                                    </select>
+                                    <button class="btn btn-secondary ghost-btn" id="btn-fetch-models">↻</button>
+                                </div>
                             </div>
                             <div class="form-group flex-1">
                                 <label class="form-label" for="cfg-endpoint">API Endpoint</label>
                                 <input type="url" id="cfg-endpoint" class="input-glass" placeholder="https://inference.generativeai…" />
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group flex-1">
-                                <label class="form-label" for="cfg-compartment">Storage Compartment OCID</label>
-                                <input type="text" id="cfg-compartment" class="input-glass" placeholder="ocid1.compartment.oc1…" />
-                            </div>
-                            <div class="form-group flex-1">
-                                <label class="form-label" for="cfg-bucket">Bucket Name</label>
-                                <input type="text" id="cfg-bucket" class="input-glass" placeholder="REVIEW_REPORT_BUCKET" />
                             </div>
                         </div>
                     </div>

@@ -33,20 +33,24 @@ class OCIStorageClient:
     """Thin wrapper around OCI ObjectStorageClient for review report management."""
 
     def __init__(self) -> None:
-        from config import OCI_CONFIG_PROFILE
+        from config import get_oci_auth
         log.info("Initialising OCI Object Storage client …")
         try:
-            config = oci.config.from_file("~/.oci/config", OCI_CONFIG_PROFILE)
+            auth = get_oci_auth(service="storage")
         except Exception as exc:
             log.critical(
-                "Failed to load OCI config from ~/.oci/config.\n"
+                "Failed to load OCI auth config.\n"
                 "  WHAT WENT WRONG : %s\n"
-                "  WHAT TO DO      : Ensure ~/.oci/config exists with a valid [%s] profile.",
-                exc, OCI_CONFIG_PROFILE,
+                "  WHAT TO DO      : Ensure your settings are correctly configured.",
+                exc
             )
             raise
 
-        self._client = oci.object_storage.ObjectStorageClient(config)
+        kwargs = {"config": auth.get("config", {})}
+        if "signer" in auth:
+            kwargs["signer"] = auth["signer"]
+
+        self._client = oci.object_storage.ObjectStorageClient(**kwargs)
         self._namespace: Optional[str] = None
         log.info("OCI Object Storage client ready.")
 

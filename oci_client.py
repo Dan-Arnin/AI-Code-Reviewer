@@ -50,26 +50,29 @@ class OCIGenAIClient:
             "OCI config → profile=%s | endpoint=%s | model=%s",
             OCI_CONFIG_PROFILE, OCI_ENDPOINT, OCI_MODEL_ID,
         )
+        from config import get_oci_auth
         try:
-            config = oci.config.from_file("~/.oci/config", OCI_CONFIG_PROFILE)
+            auth = get_oci_auth(service="genai")
         except Exception as exc:
             log.critical(
-                "Failed to load OCI config from ~/.oci/config.\n"
+                "Failed to load OCI auth config.\n"
                 "  WHAT WENT WRONG : %s\n"
-                "  WHAT TO DO      : Ensure ~/.oci/config exists and contains a valid "
-                "[%s] profile with user, tenancy, region, key_file, and fingerprint fields. "
-                "See https://docs.oracle.com/en-us/iaas/Content/API/Concepts/sdkconfig.htm",
-                exc, OCI_CONFIG_PROFILE,
+                "  WHAT TO DO      : Check Settings page configurations.",
+                exc
             )
             raise
 
         try:
-            self._client = oci.generative_ai_inference.GenerativeAiInferenceClient(
-                config=config,
-                service_endpoint=OCI_ENDPOINT,
-                retry_strategy=oci.retry.NoneRetryStrategy(),
-                timeout=(10, 240),
-            )
+            kwargs = {
+                "config": auth.get("config", {}),
+                "service_endpoint": OCI_ENDPOINT,
+                "retry_strategy": oci.retry.NoneRetryStrategy(),
+                "timeout": (10, 240),
+            }
+            if "signer" in auth:
+                kwargs["signer"] = auth["signer"]
+                
+            self._client = oci.generative_ai_inference.GenerativeAiInferenceClient(**kwargs)
             self._compartment_id = OCI_COMPARTMENT_ID
             self._model_id = OCI_MODEL_ID
             log.info("OCI client ready.")
@@ -257,13 +260,17 @@ class OCIGenAIClient:
                     # always caused by the server closing a keep-alive connection
                     # that urllib3 was still holding open.
                     try:
-                        config = oci.config.from_file("~/.oci/config", OCI_CONFIG_PROFILE)
-                        self._client = oci.generative_ai_inference.GenerativeAiInferenceClient(
-                            config=config,
-                            service_endpoint=OCI_ENDPOINT,
-                            retry_strategy=oci.retry.NoneRetryStrategy(),
-                            timeout=(10, 240),
-                        )
+                        from config import get_oci_auth
+                        auth = get_oci_auth()
+                        kw = {
+                            "config": auth.get("config", {}),
+                            "service_endpoint": OCI_ENDPOINT,
+                            "retry_strategy": oci.retry.NoneRetryStrategy(),
+                            "timeout": (10, 240),
+                        }
+                        if "signer" in auth:
+                            kw["signer"] = auth["signer"]
+                        self._client = oci.generative_ai_inference.GenerativeAiInferenceClient(**kw)
                         log.debug("OCI client recycled for call #%d retry %d.", call_id, attempt + 1)
                     except Exception as reinit_exc:
                         log.warning("Failed to recycle OCI client: %s — will retry with existing client.", reinit_exc)

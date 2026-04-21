@@ -1,6 +1,6 @@
 {
-  "ai_provider": "claude",
-  "model_id": "ocid1.generativeaimodel.oc1.us-chicago-1.amaaaaaask7dceyat2iycf2rksgjhlmrmsxakcyjbpxurwmfguxjzptogvqa",
+  "ai_provider": "oci",
+  "model_id": "ocid1.generativeaimodel.oc1.us-chicago-1.amaaaaaask7dceyal3mwamicx2e532rbxiwsm4qj5jdqf67xjfhpsl65v6aa",
   "compartment_id": "ocid1.compartment.oc1..aaaaaaaacucsz25cffcab5afedm7qcui5mpdrib2ygolks5vxsfc3wql6tna",
   "bucket_name": "REVIEW_REPORT_BUCKET",
   "endpoint": "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com",
@@ -20,8 +20,14 @@
   "saved_pats": [
     {
       "name": "DMCC PAT Token",
-      "username": "dharshan@conneqtiongroup.com",
-      "token": "DvYeZiqHay0xTS9n_7M-paN1EcAX8bdAa1jewMDY1Mk"
+      "token": "DvYeZiqHay0xTS9n_7M-paN1EcAX8bdAa1jewMDY1Mk",
+      "username": "dharshan@conneqtiongroup.com"
     }
-  ]
+  ],
+  "oci_auth_method": "config_file",
+  "oci_user_ocid": "",
+  "oci_fingerprint": "",
+  "oci_tenancy_ocid": "",
+  "oci_region": "",
+  "oci_private_key": ""
 }

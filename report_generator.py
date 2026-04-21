@@ -531,7 +531,7 @@ body {
 .change-D { background: #FFF0F0; color: #C42A2A; border: 1px solid #FFBBBB; }
 .change-R { background: #FFFBEE; color: #A07A00; border: 1px solid #FFE599; }
 
-/* ── Diff block ── */
+/* ── Diff block (Legacy) ── */
 .diff-block {
   background: #1A1D27;
   border-radius: var(--radius);
@@ -545,10 +545,62 @@ body {
   overflow-y: auto;
   margin-top: 18px;
 }
-.diff-add  { color: #74DFA2; }
-.diff-del  { color: #FF7070; }
-.diff-hunk { color: #74AEF5; }
-.diff-ctx  { color: #8B96B8; }
+
+/* ── Side-by-Side Diff ── */
+.diff-container {
+  background: #ffffff;
+  border: 1px solid #000000;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 500px;
+  overflow-y: auto;
+  margin-top: 18px;
+  color: #000;
+}
+.sbs-diff-table {
+  width: 100%;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+.sbs-diff-table td {
+  padding: 0 4px;
+  vertical-align: top;
+  white-space: pre-wrap;
+}
+.sbs-diff-table .ln {
+  width: 40px;
+  color: #666;
+  background: #f5f5f5;
+  text-align: right;
+  padding-right: 8px;
+  user-select: none;
+  border-right: 1px solid #ddd;
+  border-left: 1px solid #ddd;
+}
+.sbs-diff-table .diff-add { background: #e6ffec; color: #000; border-right: 1px solid #ddd; }
+.sbs-diff-table .diff-del { background: #ffebe9; color: #000; border-right: 1px solid #ddd; }
+.sbs-diff-table .diff-ctx { color: #000; border-right: 1px solid #ddd; }
+.sbs-diff-table .diff-empty { background: #fafafa; border-right: 1px solid #ddd; }
+.sbs-diff-table .diff-file-header { background: #000; color: #fff; font-weight: bold; padding: 6px 8px; border: 1px solid #000; }
+.sbs-diff-table .diff-hunk-header { background: #e0e0e0; color: #000; font-style: italic; padding: 4px 8px; border: 1px solid #ccc; }
+
+/* Single view mode code block */
+.single-branch-code {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #000;
+  padding: 15px;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 500px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
 
 /* ── Footer ── */
 .report-footer {
@@ -978,25 +1030,65 @@ class ReportGenerator:
                 f'<li><span class="file-change-type change-{f.change_type}">{label}</span>{f.path}</li>'
             )
 
-        # Syntax-highlighted diff
-        diff_lines = []
-        for line in report.diff_result.full_diff.splitlines()[:600]:
-            esc = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            if line.startswith("+") and not line.startswith("+++"):
-                diff_lines.append(f'<span class="diff-add">{esc}</span>')
-            elif line.startswith("-") and not line.startswith("---"):
-                diff_lines.append(f'<span class="diff-del">{esc}</span>')
-            elif line.startswith("@@"):
-                diff_lines.append(f'<span class="diff-hunk">{esc}</span>')
-            else:
-                diff_lines.append(f'<span class="diff-ctx">{esc}</span>')
-        diff_html = "\n".join(diff_lines)
+        # Determine if single branch mode
+        is_single_branch = not bool(report.diff_result.metadata.target_branch)
 
-        trunc = (
-            '<p style="color:var(--text-dim);font-size:11px;margin-top:8px;">'
-            '⚠ Diff truncated at 600 lines</p>'
-            if len(report.diff_result.full_diff.splitlines()) > 600 else ""
-        )
+        diff_lines_raw = report.diff_result.full_diff.splitlines()
+        trunc_msg = ""
+        if len(diff_lines_raw) > 2000:
+            diff_lines_raw = diff_lines_raw[:2000]
+            trunc_msg = '<p style="color:var(--text-dim);font-size:11px;margin-top:8px;">⚠ Code truncated at 2000 lines</p>'
+
+        if is_single_branch:
+            # Single column pure code
+            clean_lines = []
+            for line in diff_lines_raw:
+                # Strip leading '+' from single branch simulation
+                if line.startswith('+++') or line.startswith('---'): continue
+                if line.startswith('@@'): continue
+                val = line[1:] if line.startswith('+') else line
+                clean_lines.append(val.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+            
+            code_html = "\n".join(clean_lines)
+            viewer_html = f'<div class="single-branch-code">{code_html}</div>'
+            viewer_title = "Source Code"
+        else:
+            # Side-by-side diff
+            html_rows = []
+            html_rows.append('<table class="sbs-diff-table">')
+            left_ln = 0
+            right_ln = 0
+            
+            for line in diff_lines_raw:
+                if line.startswith('---') or line.startswith('+++'):
+                    esc = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    html_rows.append(f'<tr><td colspan="4" class="diff-file-header">{esc}</td></tr>')
+                    continue
+                if line.startswith('@@'):
+                    esc = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    html_rows.append(f'<tr><td colspan="4" class="diff-hunk-header">{esc}</td></tr>')
+                    # Hunk parsing could reset lines here if needed, keeping simple for now
+                    continue
+                
+                content = line[1:] if len(line) > 0 else ""
+                esc = content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                
+                if line.startswith('-'):
+                    left_ln += 1
+                    html_rows.append(f'<tr><td class="ln">{left_ln}</td><td class="diff-del">{esc}</td><td class="ln"></td><td class="diff-empty"></td></tr>')
+                elif line.startswith('+'):
+                    right_ln += 1
+                    html_rows.append(f'<tr><td class="ln"></td><td class="diff-empty"></td><td class="ln">{right_ln}</td><td class="diff-add">{esc}</td></tr>')
+                else:
+                    left_ln += 1
+                    right_ln += 1
+                    # context uses full line in traditional diffs (space prefixed)
+                    ctx_esc = line[1:].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    html_rows.append(f'<tr><td class="ln">{left_ln}</td><td class="diff-ctx">{ctx_esc}</td><td class="ln">{right_ln}</td><td class="diff-ctx">{ctx_esc}</td></tr>')
+            
+            html_rows.append('</table>')
+            viewer_html = f'<div class="diff-container">{"".join(html_rows)}</div>'
+            viewer_title = "Side-by-Side Diff"
 
         return f"""
 <div class="section-card">
@@ -1013,12 +1105,12 @@ class ReportGenerator:
     <div class="section-header" style="margin-bottom:12px;padding-bottom:12px;">
       <div class="section-icon" style="font-size:15px;">📄</div>
       <div>
-        <div class="section-title" style="font-size:14px;">Full Unified Diff</div>
-        <div class="section-subtitle">First 600 lines</div>
+        <div class="section-title" style="font-size:14px;">{viewer_title}</div>
+        <div class="section-subtitle">Code Viewer</div>
       </div>
     </div>
-    <div class="diff-block"><code>{diff_html}</code></div>
-    {trunc}
+    {viewer_html}
+    {trunc_msg}
   </div>
 </div>"""
 

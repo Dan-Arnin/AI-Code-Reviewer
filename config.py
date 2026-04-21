@@ -199,3 +199,68 @@ class _RuntimeConfig:
 
 
 runtime_config = _RuntimeConfig()
+
+def _extract_region_from_url(url: str) -> str | None:
+    """
+    Extracts the OCI region from a provided endpoint URL.
+    Example: https://inference.generativeai.us-chicago-1.oci.oraclecloud.com -> us-chicago-1
+    """
+    import re
+    if not url:
+        return None
+    # Standard OCI region pattern: [a-z]{2,}-[a-z]+-[0-9]
+    # We look for it between dots and preceding the oracle domain suffixes.
+    match = re.search(r"\.([a-z]{2,}-[a-z]+-[0-9])\.(?:oci\.customer-oci\.com|oraclecloud\.com)", url)
+    if match:
+        return match.group(1)
+    
+    # Fallback for simple formats like 'us-phoenix-1.oraclecloud.com'
+    match = re.search(r"([a-z]{2,}-[a-z]+-[0-9])", url)
+    if match:
+        return match.group(1)
+        
+    return None
+
+def get_oci_auth(service: str = None) -> Dict[str, Any]:
+    """
+    Returns the OCI authentication credentials dictated by the config override.
+    If service is 'genai', it uses the region extracted from the endpoint URL.
+    Returns:
+        A dict with either:
+          {"config": <config_dict>}
+        Or:
+          {"signer": <instance_principal_signer>, "config": {}}
+    """
+    import oci
+    auth_method = runtime_config.get("oci_auth_method", "config_file")
+    endpoint = runtime_config.get("endpoint", "")
+    extracted_region = _extract_region_from_url(endpoint)
+    
+    # Use the extracted region only for Gen AI, or as a global fallback if no other region exists
+    target_region = runtime_config.get("oci_region", "")
+    if service in ["genai", "generativeai"]:
+        target_region = extracted_region or target_region
+    
+    if auth_method == "instance_principal":
+        signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+        cfg = {}
+        if target_region:
+            cfg["region"] = target_region
+        return {"signer": signer, "config": cfg}
+    elif auth_method == "keys":
+        cfg = {
+            "user": runtime_config.get("oci_user_ocid", ""),
+            "key_content": runtime_config.get("oci_private_key", ""),
+            "fingerprint": runtime_config.get("oci_fingerprint", ""),
+            "tenancy": runtime_config.get("oci_tenancy_ocid", ""),
+            "region": target_region
+        }
+        oci.config.validateconfig(cfg)
+        return {"config": cfg}
+    else:
+        # Default config file behavior
+        cfg = oci.config.from_file("~/.oci/config", OCI_CONFIG_PROFILE)
+        if target_region:
+            cfg["region"] = target_region
+        return {"config": cfg}
+
