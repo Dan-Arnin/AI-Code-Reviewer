@@ -1,0 +1,6 @@
+[DEFAULT]
+user=ocid1.user.oc1..aaaaaaaa2sqbmfiswrgpdwuajx52hhpimbli3fuvmyrbzvehuibjvh34mkva
+fingerprint=7b:7a:01:ef:57:59:6c:67:93:a9:b2:06:34:d4:13:da
+tenancy=ocid1.tenancy.oc1..aaaaaaaahqvb2kliqi35z57qalhpr4dyqbjprclszdcoar2wgc7q6nl36aba
+region=me-dubai-1
+key_file=~/.oci/OKEAdmin_private.pem

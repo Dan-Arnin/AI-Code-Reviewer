@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CodeSpectre — AI Code Reviewer</title>
+    <meta name="description"
+        content="AI-powered code review dashboard — OCI Gen AI or Anthropic Claude — view reports, trigger reviews, and configure settings." />
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- tsParticles -->
+    <script src="https://cdn.jsdelivr.net/npm/tsparticles-preset-stars@2.12.0/tsparticles.preset.stars.bundle.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+
+<body>
+
+    <!-- Particle Background -->
+    <div id="tsparticles"></div>
+
+    <div id="toast-container"></div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- TOP BAR                                                           -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <header class="topbar glass">
+        <div class="topbar-brand">
+            <div class="logo-icon neon-text">⬡</div>
+            <span class="neon-text font-bold">CodeSpectre</span>
+        </div>
+        <div class="topbar-right">
+            <button id="theme-toggle" class="btn btn-icon ghost" title="Toggle Theme">🌙</button>
+            <span id="provider-badge" class="provider-badge provider-oci">☁ OCI Gen AI</span>
+        </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- MAIN LAYOUT                                                        -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="app-main">
+
+        <!-- ── Sidebar ────────────────────────────────────────────────────── -->
+        <aside class="sidebar glass">
+            <div class="sidebar-section">
+                <div class="sidebar-label">Navigation</div>
+                <button class="nav-item active" data-view="reports">
+                    <span class="nav-icon">📋</span>
+                    <span>Reports</span>
+                </button>
+                <button class="nav-item" data-view="run-review">
+                    <span class="nav-icon">🚀</span>
+                    <span>Run Review</span>
+                </button>
+                <button class="nav-item" data-view="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span>Settings</span>
+                </button>
+            </div>
+            
+            <div class="sidebar-footer">
+                <p>CodeSpectre 1.0</p>
+                <p>AI Code Review Agent</p>
+            </div>
+        </aside>
+
+        <!-- ── Content ────────────────────────────────────────────────────── -->
+        <main class="content">
+
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <!-- VIEW: REPORTS                                                  -->
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <div id="view-reports" class="view active">
+
+                <div class="page-header">
+                    <h1 class="page-title neon-text">Review Reports</h1>
+                    <p class="page-subtitle">All reports are fetched directly from Object Storage</p>
+                </div>
+
+                <!-- Filter toolbar -->
+                <div class="toolbar glass">
+                    <span class="toolbar-label">📅 Filter</span>
+                    <div class="flex items-center gap-8">
+                        <label class="text-xs text-muted">From</label>
+                        <input type="date" id="filter-from" class="input-glass" title="From date" />
+                    </div>
+                    <div class="flex items-center gap-8">
+                        <label class="text-xs text-muted">To</label>
+                        <input type="date" id="filter-to" class="input-glass" title="To date" />
+                    </div>
+                    <div class="flex items-center gap-8">
+                        <label class="text-xs text-muted">Repo</label>
+                        <input type="text" id="filter-repo" class="input-glass" placeholder="org/repo" style="max-width:120px;"/>
+                    </div>
+                    <div class="flex items-center gap-8">
+                        <label class="text-xs text-muted">Branch</label>
+                        <input type="text" id="filter-branch" class="input-glass" placeholder="main" style="max-width:100px;"/>
+                    </div>
+                    <button class="btn btn-primary btn-sm neon-btn" id="filter-apply">Apply</button>
+                    <button class="btn btn-secondary btn-sm ghost-btn" id="filter-clear">Clear</button>
+                    <div class="toolbar-spacer"></div>
+                    <div class="flex items-center gap-8">
+                        <label class="text-xs text-muted">Per page</label>
+                        <select id="page-size-select" class="input-glass" style="width:auto;">
+                            <option value="10">10</option>
+                            <option value="20" selected>20</option>
+                            <option value="50">50</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-secondary btn-sm ghost-btn" onclick="loadReports(1)">↻ Refresh</button>
+                </div>
+
+                <!-- Loading state -->
+                <div id="reports-loading" class="flex items-center gap-12"
+                    style="padding:40px 0;justify-content:center;">
+                    <div class="spinner pulse-neon"></div>
+                    <span class="text-muted">Loading reports from OCI…</span>
+                </div>
+
+                <!-- Reports list -->
+                <div id="reports-list" class="hidden reports-grid"></div>
+
+                <!-- Pagination -->
+                <div id="pagination" class="pagination"></div>
+
+            </div><!-- /view-reports -->
+
+
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <!-- VIEW: RUN REVIEW                                               -->
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <div id="view-run-review" class="view">
+
+                <div class="page-header">
+                    <h1 class="page-title neon-text">Spectre Analysis</h1>
+                    <p class="page-subtitle">Trigger an AI-powered review against any Git repository</p>
+                </div>
+
+                <div class="card glass" style="max-width:720px;">
+                    
+                    <div class="form-row">
+                        <div class="form-group flex-1">
+                            <label class="form-label" for="review-pat">Auth Token (PAT) *</label>
+                            <select id="review-pat" class="input-glass">
+                                <option value="" disabled selected>Select a Personal Access Token...</option>
+                                <!-- Populated dynamically -->
+                            </select>
+                            <p class="form-hint">Manage tokens in <a href="#" onclick="navigateTo('settings')" class="neon-link">Settings</a></p>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="review-repo">Repository URL *</label>
+                        <div class="flex gap-8">
+                            <select id="review-repo-select" class="input-glass flex-1">
+                                <option value="" disabled selected>Select a saved repository...</option>
+                                <!-- Populated dynamically -->
+                            </select>
+                            <button id="add-repo-btn" class="btn btn-secondary ghost-btn">+</button>
+                        </div>
+                        <p class="form-hint">Full HTTPS URL of the Git repository</p>
+                    </div>
+                    
+                    <!-- Add Repo Modal/Inline form -->
+                    <div id="add-repo-form" class="hidden glass-panel form-group" style="padding: 15px; margin-bottom: 20px;">
+                        <label class="form-label">Add New Repository</label>
+                        <div class="flex gap-8">
+                            <input type="url" id="new-repo-url" class="input-glass flex-1" placeholder="https://git.example.com/org/project.git" />
+                            <button id="save-new-repo-btn" class="btn btn-primary neon-btn btn-sm">Save</button>
+                            <button id="cancel-new-repo-btn" class="btn btn-secondary ghost-btn btn-sm">Cancel</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="review-single-branch">
+                            <span class="slider round"></span>
+                            <span class="toggle-label">Run review for entire single branch (no diff)</span>
+                        </label>
+                    </div>
+
+                    <div class="form-row branch-row">
+                        <div class="form-group flex-1">
+                            <label class="form-label" for="review-source" id="label-source-branch">Source Branch *</label>
+                            <div class="flex gap-8">
+                                <select id="review-source" class="input-glass flex-1">
+                                    <option value="">Select branch...</option>
+                                </select>
+                                <button id="fetch-branches-btn" class="btn btn-secondary ghost-btn" title="Fetch branches">⬇️</button>
+                            </div>
+                            <p class="form-hint" id="hint-source-branch">The feature / MR branch</p>
+                        </div>
+                        <div class="form-group flex-1" id="group-target-branch">
+                            <label class="form-label" for="review-target">Target Branch *</label>
+                            <select id="review-target" class="input-glass">
+                                <option value="">Select branch...</option>
+                            </select>
+                            <p class="form-hint">The production / base branch</p>
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="group-pr-id">
+                        <label class="form-label" for="review-pr-id">PR / MR ID <span
+                                class="text-muted">(optional)</span></label>
+                        <input type="text" id="review-pr-id" class="input-glass" placeholder="42" style="max-width:160px;" />
+                    </div>
+
+
+                    <!-- Progress -->
+                    <div id="review-progress" class="hidden">
+                        <div class="progress-wrap">
+                            <div class="progress-bar indeterminate neon-bg" id="review-bar"></div>
+                        </div>
+                        <p class="text-muted" style="font-size:12px;margin-top:8px;">
+                            Spectre agents are analyzing code in parallel — this may take 1-3 minutes depending on branch size.
+                        </p>
+                    </div>
+
+                    <div style="display:flex;gap:12px;margin-top:20px;">
+                        <button class="btn btn-primary neon-btn" id="run-review-btn">🚀 Initialize Scan</button>
+                        <button class="btn btn-secondary ghost-btn" onclick="navigateTo('reports')">View Archive</button>
+                    </div>
+
+                </div>
+
+                <!-- Result -->
+                <div id="review-result"></div>
+
+                <!-- ── Inline report viewer ─────────────────────────────── -->
+                <div id="inline-report-panel" class="hidden" style="margin-top:24px;">
+                    <div class="inline-report-header glass">
+                        <span class="inline-report-title neon-text" id="inline-report-title">📄 Analysis Report</span>
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <a id="inline-report-open-tab" href="#" target="_blank"
+                               class="btn btn-sm btn-secondary ghost-btn" title="Open report in new tab">↗ Open in Tab</a>
+                            <button class="btn btn-sm btn-secondary btn-icon ghost-btn"
+                                    onclick="closeInlineReport()" title="Close report">✕</button>
+                        </div>
+                    </div>
+                    <iframe id="inline-report-iframe"
+                            title="Inline report viewer"
+                            sandbox="allow-same-origin allow-scripts"
+                            class="report-iframe glass">
+                    </iframe>
+                </div>
+
+            </div><!-- /view-run-review -->
+
+
+
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <!-- VIEW: SETTINGS                                                 -->
+            <!-- ══════════════════════════════════════════════════════════════ -->
+            <div id="view-settings" class="view">
+
+                <div class="page-header">
+                    <h1 class="page-title neon-text">System Configuration</h1>
+                    <p class="page-subtitle">Configure AI, OCI connection, Auth Tokens, and rules</p>
+                </div>
+
+                <!-- ── PAT Management ───────────────────────────────────────── -->
+                <div class="settings-section">
+                    <div class="settings-section-title">🔑 Access Tokens (PATs)</div>
+                    <div class="card glass">
+                        <p class="text-muted" style="font-size:13px;margin-bottom:16px;">
+                            Manage Personal Access Tokens (PATs) used to clone repositories. Saved tokens are stored securely in the server config.
+                        </p>
+                        
+                        <div class="pat-table-container">
+                            <table class="table-glass" id="pat-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Username</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="glass-panel" style="margin-top: 15px; padding: 15px;">
+                            <h4 style="margin-bottom: 10px; font-weight: 500;">Add New Token</h4>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <input type="text" id="new-pat-name" class="input-glass" placeholder="Token Name (e.g., VBS Prod)" />
+                                </div>
+                                <div class="form-group flex-1">
+                                    <input type="text" id="new-pat-user" class="input-glass" placeholder="Git Username / Email" />
+                                </div>
+                                <div class="form-group flex-1">
+                                    <input type="password" id="new-pat-token" class="input-glass" placeholder="Token Value (PAT)" />
+                                </div>
+                                <div class="form-group" style="align-self: flex-start;">
+                                    <button class="btn btn-primary neon-btn btn-sm" id="btn-add-pat">Add Token</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── AI Provider ───────────────────────────────────────── -->
+                <div class="settings-section">
+                    <div class="settings-section-title">🤖 Core Engine</div>
+                    <div class="card glass">
+                        <div class="provider-toggle-group" id="provider-toggle-group">
+                            <button class="provider-btn active" id="btn-provider-oci"
+                                    onclick="selectProvider('oci')">
+                                <span class="provider-btn-icon">☁</span>
+                                <span class="provider-btn-label">OCI Gen AI</span>
+                            </button>
+                            <button class="provider-btn" id="btn-provider-claude"
+                                    onclick="selectProvider('claude')">
+                                <span class="provider-btn-icon">✦</span>
+                                <span class="provider-btn-label">Anthropic Claude</span>
+                            </button>
+                        </div>
+                        <p class="form-hint" id="provider-hint" style="margin-top:12px;">
+                            Currently active: <strong id="provider-hint-name" class="neon-text-cyan">OCI Gen AI</strong>
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- OCI Connection -->
+                <div class="settings-section">
+                    <div class="settings-section-title">☁ OCI Gen AI Config</div>
+                    <div class="card glass">
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label class="form-label" for="cfg-oci-auth">Auth Method</label>
+                                <select id="cfg-oci-auth" class="input-glass">
+                                    <option value="config_file">Config Profile (~/.oci/config)</option>
+                                    <option value="keys">Raw Keys</option>
+                                    <option value="instance_principal">Instance Principal</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Raw Keys section -->
+                        <div id="cfg-oci-keys-group" class="hidden glass-panel" style="margin-bottom:20px; padding:15px;">
+                            <h4 style="margin-bottom:10px; font-weight:500;">OCI Credentials</h4>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <input type="text" id="cfg-oci-user" class="input-glass" placeholder="User OCID" />
+                                </div>
+                                <div class="form-group flex-1">
+                                    <input type="text" id="cfg-oci-tenancy" class="input-glass" placeholder="Tenancy OCID" />
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <input type="text" id="cfg-oci-fingerprint" class="input-glass" placeholder="Fingerprint" />
+                                </div>
+                                <div class="form-group flex-1">
+                                    <input type="text" id="cfg-oci-region" class="input-glass" placeholder="Region (Fallback)" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <textarea id="cfg-oci-key" class="input-glass" rows="4" placeholder="-----BEGIN RSA PRIVATE KEY-----..."></textarea>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label class="form-label">Gen AI Compartment</label>
+                                <div class="flex gap-8">
+                                    <select id="cfg-compartment" class="input-glass flex-1">
+                                        <option value="">Select Compartment...</option>
+                                    </select>
+                                    <button class="btn btn-secondary ghost-btn" id="btn-fetch-compartments">↻</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group flex-1">
+                                <label class="form-label">Model OCID</label>
+                                <div class="flex gap-8">
+                                    <select id="cfg-model-id" class="input-glass flex-1">
+                                        <option value="">Select Model...</option>
+                                    </select>
+                                    <button class="btn btn-secondary ghost-btn" id="btn-fetch-models">↻</button>
+                                </div>
+                            </div>
+                            <div class="form-group flex-1">
+                                <label class="form-label" for="cfg-endpoint">API Endpoint</label>
+                                <input type="url" id="cfg-endpoint" class="input-glass" placeholder="https://inference.generativeai…" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- ── Active Agents ───────────────────────────────────────── -->
+                <div class="settings-section">
+                    <div class="settings-section-title">🔌 Sub-Agents</div>
+                    <div class="card glass">
+                        <div class="agent-toggle-grid" id="agent-toggle-grid">
+                            <label class="agent-toggle-chip active" id="chip-security">
+                                <input type="checkbox" id="agent-security" value="security" checked hidden />
+                                <span class="chip-icon glow-red">🔒</span>
+                                <span class="chip-label">Security</span>
+                            </label>
+                            <label class="agent-toggle-chip active" id="chip-logic">
+                                <input type="checkbox" id="agent-logic" value="logic" checked hidden />
+                                <span class="chip-icon glow-blue">🧠</span>
+                                <span class="chip-label">Logic</span>
+                            </label>
+                            <label class="agent-toggle-chip active" id="chip-performance">
+                                <input type="checkbox" id="agent-performance" value="performance" checked hidden />
+                                <span class="chip-icon glow-yellow">⚡</span>
+                                <span class="chip-label">Performance</span>
+                            </label>
+                            <label class="agent-toggle-chip active" id="chip-dependency">
+                                <input type="checkbox" id="agent-dependency" value="dependency" checked hidden />
+                                <span class="chip-icon glow-green">📦</span>
+                                <span class="chip-label">Dependency</span>
+                            </label>
+                            <label class="agent-toggle-chip active" id="chip-style">
+                                <input type="checkbox" id="agent-style" value="style" checked hidden />
+                                <span class="chip-icon glow-purple">🎨</span>
+                                <span class="chip-label">Style</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Agent Prompts -->
+                <div class="settings-section">
+                    <div class="settings-section-title">📝 Agent Directives</div>
+                    <div class="card glass">
+                        <!-- Tabs -->
+                        <div class="agent-prompt-tabs">
+                            <button class="agent-tab active" data-agent="security">🔒 Security</button>
+                            <button class="agent-tab" data-agent="style">🎨 Style</button>
+                            <button class="agent-tab" data-agent="logic">🧠 Logic</button>
+                            <button class="agent-tab" data-agent="performance">⚡ Performance</button>
+                            <button class="agent-tab" data-agent="dependency">📦 Dependency</button>
+                        </div>
+
+                        <!-- Panels -->
+                        <div id="agent-panel-security" class="agent-prompt-panel active">
+                            <textarea id="prompt-security" class="input-glass" rows="8"></textarea>
+                        </div>
+                        <div id="agent-panel-style" class="agent-prompt-panel">
+                            <textarea id="prompt-style" class="input-glass" rows="8"></textarea>
+                        </div>
+                        <div id="agent-panel-logic" class="agent-prompt-panel">
+                            <textarea id="prompt-logic" class="input-glass" rows="8"></textarea>
+                        </div>
+                        <div id="agent-panel-performance" class="agent-prompt-panel">
+                            <textarea id="prompt-performance" class="input-glass" rows="8"></textarea>
+                        </div>
+                        <div id="agent-panel-dependency" class="agent-prompt-panel">
+                            <textarea id="prompt-dependency" class="input-glass" rows="8"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:12px;align-items:center;margin-top:30px;margin-bottom:30px;">
+                    <button class="btn btn-primary neon-btn" id="save-config-btn">💾 Save Configuration</button>
+                    <button class="btn btn-secondary ghost-btn" onclick="loadConfig()">↻ Reset Config</button>
+                    <span class="text-muted text-xs">Settings sync instantly to the server.</span>
+                </div>
+
+            </div><!-- /view-settings -->
+
+        </main><!-- /content -->
+    </div><!-- /app-main -->
+
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- REPORT MODAL                                                       -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div id="report-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+        <div class="modal glass">
+            <div class="modal-header">
+                <div class="modal-title neon-text" id="modal-title">Report</div>
+                <div class="flex items-center gap-8">
+                    <span class="badge badge-oci">☁ OCI</span>
+                    <button class="btn btn-sm btn-secondary ghost-btn btn-icon" id="modal-close" title="Close (Esc)">✕</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <iframe id="report-iframe" title="Report content" sandbox="allow-same-origin allow-scripts"></iframe>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

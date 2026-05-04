@@ -4,3 +4,4 @@ requests
 python-dotenv
 gitpython
 jinja2
+anthropic
